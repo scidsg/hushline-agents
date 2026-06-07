@@ -1,5 +1,7 @@
 # Hush Line Agents
 
+[![Tests](https://github.com/scidsg/hushline-agents/actions/workflows/tests.yml/badge.svg)](https://github.com/scidsg/hushline-agents/actions/workflows/tests.yml)
+
 Automation for maintaining the [Hush Line](https://github.com/scidsg/hushline) project.
 
 This repository contains the code-agent issue runner, local environment bootstrap helper,
