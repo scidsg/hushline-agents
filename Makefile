@@ -9,7 +9,7 @@ lint: ## Check Python formatting, lint, typing, and shell syntax
 	python3 -m ruff format --check .
 	python3 -m ruff check .
 	python3 -m mypy scripts tests
-	bash -n scripts/agent_daily_issue_runner.sh
+	bash -n scripts/code_agent.sh
 	bash -n scripts/agent_issue_bootstrap.sh
 
 .PHONY: fix

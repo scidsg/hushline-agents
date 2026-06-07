@@ -55,12 +55,12 @@ def test_collect_events_from_hushline_runner_log(tmp_path: Path) -> None:
     log_path.write_text(
         "\n".join(
             [
-                "[2026-05-17 10:00:00 PDT] Starting daily issue runner check.",
+                "[2026-05-17 10:00:00 PDT] Starting code agent check.",
                 (
                     "[2026-05-17 10:00:06 PDT] Skipped: no open issues found in "
                     "project 'Hush Line Roadmap' column 'Agent Eligible'."
                 ),
-                "[2026-05-17 11:00:00 PDT] Starting daily issue runner check.",
+                "[2026-05-17 11:00:00 PDT] Starting code agent check.",
                 "Opened PR: https://github.com/scidsg/hushline/pull/2001",
             ],
         ),

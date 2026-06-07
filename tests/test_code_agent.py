@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNNER_SCRIPT = ROOT / "scripts" / "agent_daily_issue_runner.sh"
+RUNNER_SCRIPT = ROOT / "scripts" / "code_agent.sh"
 
 
 def _run_bash(script: str) -> subprocess.CompletedProcess[str]:
@@ -509,7 +509,7 @@ printf '%s\\n' "$snapshot_metadata"
     assert Path(original_dir) == RUNNER_SCRIPT.parent
     assert snapshot_file.exists()
     assert snapshot_file.parent == tmp_path
-    assert snapshot_file.name.startswith("agent_daily_issue_runner.")
+    assert snapshot_file.name.startswith("code_agent.")
     assert "XXXXXX" not in snapshot_file.name
     assert not snapshot_file.name.endswith(".sh")
     assert snapshot_file.read_text(encoding="utf-8") == RUNNER_SCRIPT.read_text(encoding="utf-8")
@@ -1265,7 +1265,7 @@ build_pr_title 1622 "Normalize geography"
     result = _run_bash(shell_script)
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout == "#1622 Daily runner diagnostic\n"
+    assert result.stdout == "#1622 Code agent diagnostic\n"
 
 
 def test_build_branch_name_uses_issue_prefix() -> None:
@@ -2446,7 +2446,7 @@ def test_write_pr_body_for_child_issue_references_epic_and_closes_child_issue(
 source {shlex.quote(str(RUNNER_SCRIPT))}
 PR_BODY_FILE={shlex.quote(str(pr_body_file))}
 stream_changed_files() {{
-  printf 'scripts/agent_daily_issue_runner.sh\\n'
+  printf 'scripts/code_agent.sh\\n'
 }}
 count_non_log_changed_files() {{
   printf '1\\n'
@@ -3017,7 +3017,7 @@ write_pr_narrative_lead 1622 "Normalize geography across directory listing types
     assert result.returncode == 0, result.stderr
     assert (
         "This run does not change the product itself; it only updates the runner log "
-        "artifact that records what the daily runner did."
+        "artifact that records what the code agent did."
     ) in result.stdout
     assert "This run only changes the runner log artifact." in result.stdout
 
@@ -3035,7 +3035,7 @@ write_pr_narrative_lead 1622 "Normalize geography across directory listing types
     result = _run_bash(shell_script)
 
     assert result.returncode == 0, result.stderr
-    assert "This diagnostic PR records the daily runner outcome" in result.stdout
+    assert "This diagnostic PR records the code agent outcome" in result.stdout
     assert (
         "it opened this sanitized log-only PR instead of leaving the local checkout stranded"
         in result.stdout
@@ -3154,7 +3154,7 @@ git() {{
       return 0
       ;;
     "diff --cached --name-only")
-      printf 'tests/test_agent_daily_issue_runner.py\\n'
+      printf 'tests/test_code_agent.py\\n'
       return 0
       ;;
     "ls-files --others --exclude-standard")
@@ -3174,7 +3174,7 @@ restore_non_log_worktree_changes
     calls = call_log.read_text(encoding="utf-8")
     assert (
         "git:restore --staged --worktree -- hushline/static/js/directory_verified.js "
-        "tests/test_agent_daily_issue_runner.py"
+        "tests/test_code_agent.py"
     ) in calls
     assert "git:clean -f -- tmp/new-file.txt" in calls
 
@@ -4635,7 +4635,7 @@ def test_address_pr_feedback_replies_and_resolves_review_threads(
                                     "id": "PRRT_kwDOExample",
                                     "isResolved": False,
                                     "isOutdated": False,
-                                    "path": "scripts/agent_daily_issue_runner.sh",
+                                    "path": "scripts/code_agent.sh",
                                     "line": 100,
                                     "originalLine": 100,
                                     "comments": {
@@ -4713,7 +4713,7 @@ git() {{
       return 0
       ;;
     "diff-tree --no-commit-id --name-only -r")
-      printf 'scripts/agent_daily_issue_runner.sh\\n'
+      printf 'scripts/code_agent.sh\\n'
       return 0
       ;;
   esac
@@ -4775,8 +4775,8 @@ address_pr_feedback \
         "reply",
         "resolve",
     ]
-    assert "Replied to PR #2000 review thread scripts/agent_daily_issue_runner.sh." in result.stdout
-    assert "Resolved PR #2000 review thread scripts/agent_daily_issue_runner.sh." in result.stdout
+    assert "Replied to PR #2000 review thread scripts/code_agent.sh." in result.stdout
+    assert "Resolved PR #2000 review thread scripts/code_agent.sh." in result.stdout
 
 
 def test_pr_feedback_thread_targets_only_include_team_members_or_codex() -> None:
@@ -4821,7 +4821,7 @@ def test_pr_feedback_thread_targets_only_include_team_members_or_codex() -> None
                                 {
                                     "id": "PRRT_codex",
                                     "isResolved": False,
-                                    "path": "tests/test_agent_daily_issue_runner.py",
+                                    "path": "tests/test_code_agent.py",
                                     "comments": {
                                         "nodes": [
                                             {
@@ -4879,7 +4879,7 @@ pr_feedback_unresolved_review_thread_targets "$feedback_json"
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines() == [
         "PRRT_team_member\t222\thushline/model/username.py",
-        "PRRT_codex\t333\ttests/test_agent_daily_issue_runner.py",
+        "PRRT_codex\t333\ttests/test_code_agent.py",
     ]
 
 
