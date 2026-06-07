@@ -1,6 +1,7 @@
 # Hush Line Agents
 
 [![Tests](https://github.com/scidsg/hushline-agents/actions/workflows/tests.yml/badge.svg)](https://github.com/scidsg/hushline-agents/actions/workflows/tests.yml)
+[![Dependency Graph](https://github.com/scidsg/hushline-agents/actions/workflows/dependabot/update-graph/badge.svg)](https://github.com/scidsg/hushline-agents/actions/workflows/dependabot/update-graph)
 
 Automation for maintaining the [Hush Line](https://github.com/scidsg/hushline) project.
 
