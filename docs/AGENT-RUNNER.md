@@ -6,7 +6,7 @@ This document tracks the current state of the repo-managed agent automation used
 
 | Script                                                | Role                           | Current State                                                 | PR / Output Surface                                               |
 | ----------------------------------------------------- | ------------------------------ | ------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `scripts/agent_daily_issue_runner.sh`                 | GitHub issue implementation    | Paused on this host; configured for 10-minute launchd cadence | issue-specific branches and PRs                                   |
+| `scripts/code_agent.sh`                 | GitHub issue implementation    | Paused on this host; configured for 10-minute launchd cadence | issue-specific branches and PRs                                   |
 | `scripts/weekly_hushline_code_agent_report_runner.py` | Weekly local agent reporting   | Active, local Mail.app delivery and local report persistence  | configured email recipient; local `logs/weekly-agent-reports/`    |
 | `scripts/agent_issue_bootstrap.sh`                    | Local runtime/bootstrap helper | Active, manual helper used by issue and local workflows       | local Docker/bootstrap only                                       |
 
@@ -24,9 +24,9 @@ The repository does not currently include runner scripts for the social or docs 
 | com.hushline.social.linkedin.verified-user.weekly | Social verified-user LinkedIn weekly | Monday at 12:10 PM                        | com.hushline.social.linkedin.verified-user.weekly.plist |
 | com.hushline.docs.weekly-article                  | Docs weekly article                  | Wednesday at 10:00 AM                     | com.hushline.docs.weekly-article.plist                  |
 
-## Daily Issue Runner
+## Code Agent
 
-Script: `scripts/agent_daily_issue_runner.sh`
+Script: `scripts/code_agent.sh`
 
 This runner runs directly in the local repo and performs a narrow local gate before opening a PR.
 
@@ -133,7 +133,7 @@ Every queued issue is assumed to require a real change. Once the runner claims a
 
 ```text
 +---------------------------------+
-| Start: agent_daily_issue_runner |
+| Start: code_agent |
 +---------------------------------+
       |
       v
@@ -264,7 +264,7 @@ Every queued issue is assumed to require a real change. Once the runner claims a
 ## Manual Run
 
 ```bash
-./scripts/agent_daily_issue_runner.sh
+./scripts/code_agent.sh
 ```
 
 ## Weekly Agent Report Runner
@@ -315,12 +315,12 @@ make weekly-agent-report
 Optional forced issue:
 
 ```bash
-./scripts/agent_daily_issue_runner.sh --issue 1389
+./scripts/code_agent.sh --issue 1389
 ```
 
 ## Machine Setup
 
-Each runner host needs its own signed-commit configuration. The daily runner defaults to SSH signing and resolves the signing key in this order:
+Each runner host needs its own signed-commit configuration. The code agent defaults to SSH signing and resolves the signing key in this order:
 
 1. `HUSHLINE_BOT_GIT_SIGNING_KEY`
 2. Existing git config when `gpg.format=ssh` and `user.signingkey` is already set for the checkout

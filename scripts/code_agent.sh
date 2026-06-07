@@ -16,7 +16,7 @@ prepare_runner_exec_snapshot() {
 
   original_script_dir="$(CDPATH= cd -- "$(dirname -- "$runner_script_path")" && pwd)"
   original_script_path="$original_script_dir/$(basename -- "$runner_script_path")"
-  snapshot_file="$(mktemp "${TMPDIR:-/tmp}/agent_daily_issue_runner.XXXXXX")"
+  snapshot_file="$(mktemp "${TMPDIR:-/tmp}/code_agent.XXXXXX")"
   cp "$original_script_path" "$snapshot_file"
   chmod 700 "$snapshot_file"
   printf '%s\t%s\n' "$original_script_dir" "$snapshot_file"
@@ -502,7 +502,7 @@ initialize_run_state() {
   # Preserve the original stdout for optional console-only transcript streaming.
   exec 3>&1
   exec > >(tee -a "$RUN_LOG_TMP_FILE") 2>&1
-  runner_status "Starting daily issue runner check."
+  runner_status "Starting code agent check."
   echo "Runner Codex config: model=$CODEX_MODEL reasoning_effort=$CODEX_REASONING_EFFORT verbose_codex_output=$VERBOSE_CODEX_OUTPUT"
 }
 
@@ -1281,7 +1281,7 @@ build_pr_title() {
   local normalized_title=""
 
   if [[ "$RUNNER_DIAGNOSTIC_PR" == "1" ]]; then
-    printf '#%s Daily runner diagnostic\n' "$issue_number"
+    printf '#%s Code agent diagnostic\n' "$issue_number"
     return 0
   fi
 
@@ -2995,7 +2995,7 @@ write_coverage_gap_issue_body() {
 
   cat <<EOF
 ## Summary
-The daily runner opened ${pr_label} after local validation passed, then captured the line-specific test coverage snapshot below. This issue is complete only when the full suite returns to ${COVERAGE_TARGET_PERCENT:-100}% coverage with zero missed statements.
+The code agent opened ${pr_label} after local validation passed, then captured the line-specific test coverage snapshot below. This issue is complete only when the full suite returns to ${COVERAGE_TARGET_PERCENT:-100}% coverage with zero missed statements.
 
 ## Source
 - PR: ${pr_url:-unknown}
@@ -3040,7 +3040,7 @@ write_coverage_gap_issue_comment_body() {
 
   cat <<EOF
 ## Additional Coverage Snapshot
-The daily runner opened ${pr_label} after local validation passed and found the line-specific test coverage gaps below. This comment adds the gaps to this existing coverage issue instead of opening another follow-up ticket.
+The code agent opened ${pr_label} after local validation passed and found the line-specific test coverage gaps below. This comment adds the gaps to this existing coverage issue instead of opening another follow-up ticket.
 
 ## Source
 - PR: ${pr_url:-unknown}
@@ -3120,7 +3120,7 @@ open_coverage_gap_issue_after_pr() {
   if [[ -n "$pr_number" ]]; then
     issue_title="Close test coverage gaps from PR #${pr_number}"
   else
-    issue_title="Close test coverage gaps from daily runner PR"
+    issue_title="Close test coverage gaps from code agent PR"
   fi
 
   if ! existing_issue="$(find_open_coverage_gap_issue)"; then
@@ -3338,8 +3338,8 @@ path_narrative_fragment() {
     docs/*)
       printf 'documentation in `%s`' "$path"
       ;;
-    scripts/agent_daily_issue_runner.sh)
-      printf 'the daily runner script in `scripts/agent_daily_issue_runner.sh`'
+    scripts/code_agent.sh)
+      printf 'the code agent script in `scripts/code_agent.sh`'
       ;;
     scripts/*)
       printf 'supporting scripts in `%s`' "$path"
@@ -3429,7 +3429,7 @@ write_pr_narrative_lead() {
       plain_line="The runner could not produce a product change for \"$issue_title\", so it opened this sanitized log-only PR instead of leaving the local checkout stranded."
     else
       scope_line="This run only changes the runner log artifact."
-      plain_line="This run does not change the product itself; it only updates the runner log artifact that records what the daily runner did."
+      plain_line="This run does not change the product itself; it only updates the runner log artifact that records what the code agent did."
     fi
   elif [[ -n "$changed_areas" ]]; then
     scope_line="It touches ${non_log_files} non-log file(s) (${total_files} total including runner artifacts), primarily in ${changed_areas}."
@@ -3463,10 +3463,10 @@ $(if [[ -n "$epic_issue_number" ]]; then
     "$BASE_BRANCH"
 else
   if [[ "$RUNNER_DIAGNOSTIC_PR" == "1" ]]; then
-    printf 'This diagnostic PR records the daily runner outcome for #%s (`%s`).\n' \
+    printf 'This diagnostic PR records the code agent outcome for #%s (`%s`).\n' \
       "$issue_number" "$issue_title"
   else
-    printf 'This PR implements #%s (`%s`) via the daily runner with a scoped change set focused on the issue requirements.\n' \
+    printf 'This PR implements #%s (`%s`) via the code agent with a scoped change set focused on the issue requirements.\n' \
       "$issue_number" "$issue_title"
   fi
 fi)
@@ -3495,16 +3495,16 @@ write_pr_body() {
   cat >> "$PR_BODY_FILE" <<EOF2
 ## Summary
 $(if [[ -n "$epic_issue_number" ]]; then
-  printf '%s\n' "- Automated daily runner update for child issue #$issue_number."
+  printf '%s\n' "- Automated code agent update for child issue #$issue_number."
   printf '%s\n' "- Part of epic #$epic_issue_number: ${epic_issue_title}"
   printf '%s\n' "- This PR targets the epic integration branch \`$base_branch_name\`."
   printf '%s\n' "- The child issue is closed explicitly by workflow after this PR merges into the epic branch."
 elif [[ "$RUNNER_DIAGNOSTIC_PR" == "1" ]]; then
-  printf '%s\n' "- Diagnostic daily runner PR for #$issue_number."
+  printf '%s\n' "- Diagnostic code agent PR for #$issue_number."
   printf '%s\n' "- No product code is changed; this PR carries the sanitized runner log so the failure is visible in review."
   printf '%s\n' "- Runner outcome: ${RUNNER_DIAGNOSTIC_REASON:-implementation did not complete}"
 else
-  printf '%s\n' "- Automated daily issue runner implementation for #$issue_number."
+  printf '%s\n' "- Automated code agent implementation for #$issue_number."
   printf '%s\n' "- Implements issue goal: ${issue_title}"
 fi)
 
@@ -3565,7 +3565,7 @@ persist_run_log() {
 
   mkdir -p "$log_dir"
   {
-    printf 'Daily runner log\n'
+    printf 'Code agent log\n'
     printf 'Timestamp (UTC): %s\n' "$RUN_LOG_TIMESTAMP"
     printf 'Issue: #%s\n' "$issue_number"
     printf 'Repository: %s\n\n' "$REPO_SLUG"

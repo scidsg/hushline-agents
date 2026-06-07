@@ -8,7 +8,7 @@ release evidence remain in the main Hush Line repository.
 
 ## Repository Layout
 
-- `scripts/agent_daily_issue_runner.sh`: selects eligible Hush Line issues, invokes Codex,
+- `scripts/code_agent.sh`: selects eligible Hush Line issues, invokes Codex,
   validates changes, opens pull requests, and monitors review feedback.
 - `scripts/agent_issue_bootstrap.sh`: resets and seeds the target Hush Line Docker environment.
 - `scripts/sanitize_agent_run_log.py`: removes sensitive local metadata from persisted logs.
