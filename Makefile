@@ -10,7 +10,7 @@ lint: ## Check Python formatting, lint, typing, and shell syntax
 	python3 -m ruff check .
 	python3 -m mypy scripts tests
 	for script in scripts/code_agent.sh scripts/agent_issue_bootstrap.sh social/scripts/*.sh social/scripts/lib/*.sh; do bash -n "$$script"; done
-	for plist in social/deploy/launchd/*.plist; do plutil -lint "$$plist" >/dev/null; done
+	python3 scripts/validate_social_plists.py
 
 .PHONY: fix
 fix: ## Format and auto-fix supported Python issues
