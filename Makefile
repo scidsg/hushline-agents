@@ -9,8 +9,8 @@ lint: ## Check Python formatting, lint, typing, and shell syntax
 	python3 -m ruff format --check .
 	python3 -m ruff check .
 	python3 -m mypy scripts tests
-	bash -n scripts/code_agent.sh
-	bash -n scripts/agent_issue_bootstrap.sh
+	for script in scripts/code_agent.sh scripts/agent_issue_bootstrap.sh social/scripts/*.sh social/scripts/lib/*.sh; do bash -n "$$script"; done
+	python3 scripts/validate_social_plists.py
 
 .PHONY: fix
 fix: ## Format and auto-fix supported Python issues

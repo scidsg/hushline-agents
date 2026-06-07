@@ -3,8 +3,9 @@
 Automation for maintaining the [Hush Line](https://github.com/scidsg/hushline) project.
 
 This repository contains the code-agent issue runner, local environment bootstrap helper,
-sanitized run-log tooling, and weekly local runner reporting. Product code and historical
-release evidence remain in the main Hush Line repository.
+sanitized run-log tooling, weekly local runner reporting, and Hush Line social launchd
+runners. Product code, social content assets, and historical release evidence remain in
+their owning repositories.
 
 ## Repository Layout
 
@@ -13,7 +14,11 @@ release evidence remain in the main Hush Line repository.
 - `scripts/agent_issue_bootstrap.sh`: resets and seeds the target Hush Line Docker environment.
 - `scripts/sanitize_agent_run_log.py`: removes sensitive local metadata from persisted logs.
 - `scripts/weekly_hushline_code_agent_report_runner.py`: summarizes local runner logs.
+- `social/scripts/`: launchd wrappers and agent entrypoints for the Hush Line social
+  planner and publishers.
+- `social/deploy/launchd/`: LaunchAgent and LaunchDaemon templates for social jobs.
 - `docs/AGENT-RUNNER.md`: operational configuration and behavior.
+- `docs/SOCIAL-AGENTS.md`: social runner installation, schedules, and manual commands.
 - `docs/AGENTIC-CODE-POLICY.md`: human-review policy for agent-authored changes.
 
 ## Target Checkout
@@ -24,9 +29,11 @@ The scripts default to a sibling checkout:
 parent/
   hushline/
   hushline-agents/
+  hushline-social/
 ```
 
 Set `HUSHLINE_REPO_DIR` when the product checkout is elsewhere.
+Set `HUSHLINE_SOCIAL_REPO_DIR` when the social content checkout is elsewhere.
 
 ## Development
 
