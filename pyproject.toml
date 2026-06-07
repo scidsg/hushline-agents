@@ -11,6 +11,9 @@ requires-python = ">=3.11"
 license = "AGPL-3.0-only"
 dependencies = []
 
+[tool.setuptools]
+py-modules = []
+
 [project.optional-dependencies]
 dev = [
     "mypy>=1.18,<2",
