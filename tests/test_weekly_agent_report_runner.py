@@ -47,7 +47,7 @@ def test_default_sources_match_monitored_logs() -> None:
 
     assert Path.home() / ".codex/logs/hushline-code-agent.log" in paths
     assert Path.home() / "tor-code-agent/logs/tor-agent.err.log" in paths
-    assert (ROOT / "../hushline-social/logs/social-daily.log") in paths
+    assert ROOT / "logs/social/social-daily.log" in paths
 
 
 def test_collect_events_from_hushline_runner_log(tmp_path: Path) -> None:

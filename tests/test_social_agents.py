@@ -67,6 +67,14 @@ def test_runner_dashboard_launchd_template_runs_dashboard_at_aqua_login() -> Non
     assert plist["StandardErrorPath"] == "__REPO_DIR__/logs/runner-dashboard.stderr.log"
 
 
+def test_runner_dashboard_tails_social_logs_from_agents_repo() -> None:
+    script = (REPO_ROOT / "scripts" / "open_runner_dashboard.sh").read_text(encoding="utf-8")
+
+    assert "$HOME/hushline-agents/logs/social/social-daily.log" in script
+    assert "$HOME/hushline-agents/logs/social/daily-planner.stdout.log" in script
+    assert "$HOME/hushline-social/logs/" not in script
+
+
 def test_social_plist_validator_rejects_unknown_tags(tmp_path: Path) -> None:
     plist_path = tmp_path / "invalid.plist"
     plist_path.write_text(

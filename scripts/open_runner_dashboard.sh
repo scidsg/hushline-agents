@@ -16,15 +16,15 @@ SOCIAL_AGENT_CMD=$(cat <<'CMD'
 cd "$HOME/hushline"
 printf '\033]0;Social Agent Logs\007'
 tail -F \
-  "$HOME/hushline-social/logs/social-daily.log" \
-  "$HOME/hushline-social/logs/daily-planner.stdout.log" \
-  "$HOME/hushline-social/logs/daily-planner.stderr.log" \
-  "$HOME/hushline-social/logs/linkedin-daily.stdout.log" \
-  "$HOME/hushline-social/logs/linkedin-daily.stderr.log" \
-  "$HOME/hushline-social/logs/verified-user-weekly.stdout.log" \
-  "$HOME/hushline-social/logs/verified-user-weekly.stderr.log" \
-  "$HOME/hushline-social/logs/verified-user-weekly-linkedin.stdout.log" \
-  "$HOME/hushline-social/logs/verified-user-weekly-linkedin.stderr.log"
+  "$HOME/hushline-agents/logs/social/social-daily.log" \
+  "$HOME/hushline-agents/logs/social/daily-planner.stdout.log" \
+  "$HOME/hushline-agents/logs/social/daily-planner.stderr.log" \
+  "$HOME/hushline-agents/logs/social/linkedin-daily.stdout.log" \
+  "$HOME/hushline-agents/logs/social/linkedin-daily.stderr.log" \
+  "$HOME/hushline-agents/logs/social/verified-user-weekly.stdout.log" \
+  "$HOME/hushline-agents/logs/social/verified-user-weekly.stderr.log" \
+  "$HOME/hushline-agents/logs/social/verified-user-weekly-linkedin.stdout.log" \
+  "$HOME/hushline-agents/logs/social/verified-user-weekly-linkedin.stderr.log"
 CMD
 )
 
