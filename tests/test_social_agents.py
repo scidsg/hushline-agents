@@ -5,6 +5,7 @@ import plistlib
 import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SOCIAL_PLIST_DIR = REPO_ROOT / "social" / "deploy" / "launchd"
 CHECK_PREREQS_SCRIPT = REPO_ROOT / "social" / "scripts" / "check_launchd_prereqs.sh"
 GIT = shutil.which("git") or "/usr/bin/git"
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+
+from validate_social_plists import PlistValidationError, validate_plist_path  # noqa: E402
 
 
 def test_social_launchd_templates_execute_agents_repo_scripts() -> None:
@@ -37,6 +41,55 @@ def test_social_launchd_templates_pass_social_repo_dir_and_logs() -> None:
         )
         assert plist["StandardOutPath"].startswith("__REPO_DIR__/logs/social/")
         assert plist["StandardErrorPath"].startswith("__REPO_DIR__/logs/social/")
+
+
+def test_social_plist_validator_accepts_launchd_templates() -> None:
+    for plist_path in SOCIAL_PLIST_DIR.glob("com.hushline.social.*.plist"):
+        validate_plist_path(plist_path)
+
+
+def test_social_plist_validator_rejects_unknown_tags(tmp_path: Path) -> None:
+    plist_path = tmp_path / "invalid.plist"
+    plist_path.write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.hushline.invalid</string>
+  <key>BadValue</key>
+  <foo/>
+</dict>
+</plist>
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PlistValidationError, match="unknown plist tag <foo>"):
+        validate_plist_path(plist_path)
+
+
+def test_social_plist_validator_rejects_multiple_top_level_objects(tmp_path: Path) -> None:
+    plist_path = tmp_path / "invalid.plist"
+    plist_path.write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.hushline.invalid</string>
+</dict>
+<dict>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PlistValidationError, match="expected exactly one top-level plist object"):
+        validate_plist_path(plist_path)
 
 
 def _write_required_social_scripts(social_repo: Path) -> None:
