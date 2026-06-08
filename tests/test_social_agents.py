@@ -12,6 +12,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOCIAL_PLIST_DIR = REPO_ROOT / "social" / "deploy" / "launchd"
+RUNNER_PLIST_DIR = REPO_ROOT / "deploy" / "launchd"
 CHECK_PREREQS_SCRIPT = REPO_ROOT / "social" / "scripts" / "check_launchd_prereqs.sh"
 GIT = shutil.which("git") or "/usr/bin/git"
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
@@ -46,6 +47,24 @@ def test_social_launchd_templates_pass_social_repo_dir_and_logs() -> None:
 def test_social_plist_validator_accepts_launchd_templates() -> None:
     for plist_path in SOCIAL_PLIST_DIR.glob("com.hushline.social.*.plist"):
         validate_plist_path(plist_path)
+
+
+def test_runner_dashboard_launchd_template_runs_dashboard_at_aqua_login() -> None:
+    plist_path = RUNNER_PLIST_DIR / "com.hushline.runner-dashboard.plist"
+    validate_plist_path(plist_path)
+
+    plist = plistlib.loads(plist_path.read_bytes())
+
+    assert plist["Label"] == "com.hushline.runner-dashboard"
+    assert plist["ProgramArguments"] == [
+        "/bin/bash",
+        "__REPO_DIR__/scripts/open_runner_dashboard.sh",
+    ]
+    assert plist["LimitLoadToSessionType"] == "Aqua"
+    assert plist["RunAtLoad"] is True
+    assert plist["EnvironmentVariables"]["HOME"] == "__HOME_DIR__"
+    assert plist["StandardOutPath"] == "__REPO_DIR__/logs/runner-dashboard.stdout.log"
+    assert plist["StandardErrorPath"] == "__REPO_DIR__/logs/runner-dashboard.stderr.log"
 
 
 def test_social_plist_validator_rejects_unknown_tags(tmp_path: Path) -> None:

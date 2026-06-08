@@ -9,6 +9,7 @@ This document tracks the current state of the repo-managed agent automation used
 | `scripts/code_agent.sh`                 | GitHub issue implementation    | Paused on this host; configured for 10-minute launchd cadence | issue-specific branches and PRs                                   |
 | `scripts/weekly_hushline_code_agent_report_runner.py` | Weekly local agent reporting   | Active, local Mail.app delivery and local report persistence  | configured email recipient; local `logs/weekly-agent-reports/`    |
 | `scripts/agent_issue_bootstrap.sh`                    | Local runtime/bootstrap helper | Active, manual helper used by issue and local workflows       | local Docker/bootstrap only                                       |
+| `scripts/open_runner_dashboard.sh`                    | Local runner dashboard         | Active as a GUI LaunchAgent at user login after reboot        | Terminal windows and local dashboard launch logs                  |
 
 The repository does not currently include runner scripts for the social or docs launch agents listed below. Those host jobs exist outside this repository and should be documented here only as installed host context, not as repo-managed automation.
 
@@ -23,6 +24,21 @@ The repository does not currently include runner scripts for the social or docs 
 | com.hushline.social.verified-user.weekly          | Social verified-user weekly          | Monday at 12:00 PM                        | com.hushline.social.verified-user.weekly.plist          |
 | com.hushline.social.linkedin.verified-user.weekly | Social verified-user LinkedIn weekly | Monday at 12:10 PM                        | com.hushline.social.linkedin.verified-user.weekly.plist |
 | com.hushline.docs.weekly-article                  | Docs weekly article                  | Wednesday at 10:00 AM                     | com.hushline.docs.weekly-article.plist                  |
+| com.hushline.runner-dashboard                     | Local runner dashboard               | RunAtLoad in Aqua user session            | com.hushline.runner-dashboard.plist                     |
+
+## Runner Dashboard
+
+Script: `scripts/open_runner_dashboard.sh`
+
+Install or refresh the GUI LaunchAgent with:
+
+```bash
+./scripts/install_runner_dashboard_launch_agent.sh
+```
+
+The dashboard is installed in `~/Library/LaunchAgents/com.hushline.runner-dashboard.plist`.
+Because it controls Terminal through AppleScript, it runs in the logged-in Aqua user session
+after reboot rather than as a system daemon before login.
 
 ## Code Agent
 
