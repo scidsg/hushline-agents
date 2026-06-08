@@ -294,9 +294,12 @@ Monitor the installed LaunchAgent stdout/stderr logs:
 tail -F "$HOME/hushline-agents/logs/weekly-agent-report.stdout.log" "$HOME/hushline-agents/logs/weekly-agent-report.stderr.log"
 ```
 
-Check the installed LaunchAgent state:
+Control the installed LaunchAgent:
 
 ```bash
+launchctl bootout gui/$(id -u) "$HOME/Library/LaunchAgents/com.hushline.weekly-agent-report.plist"
+launchctl bootstrap gui/$(id -u) "$HOME/Library/LaunchAgents/com.hushline.weekly-agent-report.plist"
+launchctl kickstart -k gui/$(id -u)/com.hushline.weekly-agent-report
 launchctl print gui/$(id -u)/com.hushline.weekly-agent-report
 ```
 
@@ -305,6 +308,25 @@ Manual dry run:
 ```bash
 ./scripts/weekly_hushline_code_agent_report_runner.py --dry-run
 ```
+
+## Runner Dashboard Windows
+
+Open the local runner monitoring layout:
+
+```bash
+bash "$HOME/hushline-agents/scripts/open_runner_dashboard.sh"
+```
+
+The launcher opens five Terminal windows:
+
+- left/top: code-agent logs
+- left/middle: social-agent logs
+- left/bottom: weekly-agent-report logs
+- right/top: Codex in `hushline-agents`
+- right/bottom: an interactive shell in `hushline`
+
+To restore this after reboot, add the launcher command to a macOS login item or a user
+LaunchAgent that runs after graphical login.
 
 Send report:
 
