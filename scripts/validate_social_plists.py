@@ -8,6 +8,7 @@ from defusedxml import ElementTree as ET
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOCIAL_PLIST_DIR = REPO_ROOT / "social" / "deploy" / "launchd"
+RUNNER_PLIST_DIR = REPO_ROOT / "deploy" / "launchd"
 VALUE_TAGS = frozenset(
     {
         "array",
@@ -91,7 +92,11 @@ def validate_plist_path(plist_path: Path) -> None:
 
 def main() -> int:
     failed = False
-    for plist_path in sorted(SOCIAL_PLIST_DIR.glob("*.plist")):
+    plist_paths = [
+        *sorted(SOCIAL_PLIST_DIR.glob("*.plist")),
+        *sorted(RUNNER_PLIST_DIR.glob("*.plist")),
+    ]
+    for plist_path in plist_paths:
         try:
             validate_plist_path(plist_path)
         except PlistValidationError as exc:
