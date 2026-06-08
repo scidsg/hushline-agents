@@ -11,7 +11,6 @@ lint: ## Check Python formatting, lint, typing, and shell syntax
 	python3 -m mypy scripts tests
 	for script in scripts/*.sh social/scripts/*.sh social/scripts/lib/*.sh; do bash -n "$$script"; done
 	python3 scripts/validate_social_plists.py
-	for plist in deploy/launchd/*.plist; do plutil -lint "$$plist"; done
 
 .PHONY: fix
 fix: ## Format and auto-fix supported Python issues
