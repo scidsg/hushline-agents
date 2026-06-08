@@ -110,7 +110,7 @@ Every queued issue is assumed to require a real change. Once the runner claims a
     - The broader CI workflow matrix still runs on the PR after branch push; the runner no longer tries to mirror that entire matrix locally.
 19. Persist a sanitized local run log to `logs/runs/run-<timestamp>-issue-<n>.txt`.
     - After each persist, prune older runner logs and keep only the newest `10` by default.
-    - Persisted logs are sanitized before commit to remove developer filesystem paths, emails, and Codex session metadata.
+    - Persisted logs are sanitized before retention to remove developer filesystem paths, emails, Codex session metadata, and common credential patterns.
 20. Commit, push branch, and open/update PR:
     - first push uses a normal push when remote branch is absent
     - existing remote branch uses `--force-with-lease` with one stale-info recovery retry.

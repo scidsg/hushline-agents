@@ -15,7 +15,8 @@ their owning repositories.
 - `scripts/code_agent.sh`: selects eligible Hush Line issues, invokes Codex,
   validates changes, opens pull requests, and monitors review feedback.
 - `scripts/agent_issue_bootstrap.sh`: resets and seeds the target Hush Line Docker environment.
-- `scripts/sanitize_agent_run_log.py`: removes sensitive local metadata from persisted logs.
+- `scripts/sanitize_agent_run_log.py`: removes sensitive local metadata and common
+  credential patterns from persisted logs.
 - `scripts/weekly_hushline_code_agent_report_runner.py`: summarizes local runner logs.
 - `social/scripts/`: launchd wrappers and agent entrypoints for the Hush Line social
   planner and publishers.
