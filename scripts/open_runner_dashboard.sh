@@ -4,12 +4,11 @@ set -euo pipefail
 CODE_AGENT_CMD=$(cat <<'CMD'
 cd "$HOME/hushline"
 printf '\033]0;Code Agent Logs\007'
-tail -F \
-  "$HOME/.codex/logs/hushline-code-agent.log" \
-  "$HOME/.codex/logs/hushline-daily-coverage.stdout.log" \
-  "$HOME/.codex/logs/hushline-daily-coverage.stderr.log" \
-  "$HOME/tor-code-agent/logs/tor-agent.out.log" \
-  "$HOME/tor-code-agent/logs/tor-agent.err.log"
+tail -F  "$HOME/.codex/logs/hushline-code-agent.log"
+#  "$HOME/.codex/logs/hushline-daily-coverage.stdout.log" \
+#  "$HOME/.codex/logs/hushline-daily-coverage.stderr.log"
+#  "$HOME/tor-code-agent/logs/tor-agent.out.log" \
+#  "$HOME/tor-code-agent/logs/tor-agent.err.log"
 CMD
 )
 
