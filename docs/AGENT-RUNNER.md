@@ -293,7 +293,7 @@ Default log files:
 
 - `~/.codex/logs/hushline-code-agent.log`
 - `~/tor-code-agent/logs/tor-agent.err.log`
-- `../hushline-social/logs/social-daily.log`
+- `logs/social/social-daily.log`
 
 Delivery is fixed in code:
 

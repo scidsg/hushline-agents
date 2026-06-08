@@ -182,7 +182,7 @@ def default_log_sources() -> list[LogSource]:
             Path.home() / ".codex/logs/hushline-code-agent.log",
         ),
         LogSource("Tor code agent", Path.home() / "tor-code-agent/logs/tor-agent.err.log"),
-        LogSource("Hush Line social runner", (root / "../hushline-social/logs/social-daily.log")),
+        LogSource("Hush Line social runner", root / "logs/social/social-daily.log"),
     ]
 
 
