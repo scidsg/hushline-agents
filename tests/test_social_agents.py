@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import os
 import plistlib
+import shlex
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOCIAL_PLIST_DIR = REPO_ROOT / "social" / "deploy" / "launchd"
+CHECK_PREREQS_SCRIPT = REPO_ROOT / "social" / "scripts" / "check_launchd_prereqs.sh"
+GIT = shutil.which("git") or "/usr/bin/git"
 
 
 def test_social_launchd_templates_execute_agents_repo_scripts() -> None:
@@ -29,3 +37,130 @@ def test_social_launchd_templates_pass_social_repo_dir_and_logs() -> None:
         )
         assert plist["StandardOutPath"].startswith("__REPO_DIR__/logs/social/")
         assert plist["StandardErrorPath"].startswith("__REPO_DIR__/logs/social/")
+
+
+def _write_required_social_scripts(social_repo: Path) -> None:
+    script_dir = social_repo / "scripts"
+    script_dir.mkdir(parents=True)
+    for script_name in [
+        "plan-weekly-article-post.js",
+        "plan-day.js",
+        "publish-daily-linkedin.js",
+        "render-verified-user-post.js",
+    ]:
+        (script_dir / script_name).write_text("// test stub\n", encoding="utf-8")
+
+
+def _write_command_stubs(bin_dir: Path) -> None:
+    bin_dir.mkdir()
+    for command_name in ["codex", "launchctl", "node", "plutil", "swift"]:
+        command_path = bin_dir / command_name
+        command_path.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+        command_path.chmod(0o755)
+
+
+def _init_social_repo(social_repo: Path) -> None:
+    social_repo.mkdir()
+    _write_required_social_scripts(social_repo)
+    subprocess.run([GIT, "init"], cwd=social_repo, check=True, capture_output=True, text=True)
+    subprocess.run(
+        [GIT, "remote", "add", "origin", "https://github.com/scidsg/hushline-social.git"],
+        cwd=social_repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _run_prereq_checker(
+    tmp_path: Path,
+    env_text: str,
+    *,
+    owner_user: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    social_repo = tmp_path / "hushline-social"
+    env_file = social_repo / ".env.launchd"
+    bin_dir = tmp_path / "bin"
+    env = os.environ.copy()
+
+    _init_social_repo(social_repo)
+    _write_command_stubs(bin_dir)
+    env_file.write_text(env_text, encoding="utf-8")
+    env_file.chmod(0o600)
+
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+    env["HUSHLINE_SOCIAL_REPO_DIR"] = str(social_repo)
+
+    command = [
+        str(CHECK_PREREQS_SCRIPT),
+        "--scope",
+        "daemon",
+        "--env-file",
+        str(env_file),
+    ]
+    if owner_user is not None:
+        command.extend(["--owner-user", owner_user])
+
+    return subprocess.run(
+        command,
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_prereq_checker_parses_env_without_executing_shell_payload(tmp_path: Path) -> None:
+    marker = tmp_path / "env_sourced_as_root.txt"
+    env_text = "\n".join(
+        [
+            "LINKEDIN_ACCESS_TOKEN=test-token",
+            "LINKEDIN_AUTHOR_URN=urn:li:person:test",
+            "OPENAI_API_KEY=test-openai-key",
+            "HUSHLINE_SOCIAL_ARCHIVE_PUSH=0",
+            f"MALICIOUS=$(touch {shlex.quote(str(marker))})",
+        ]
+    )
+
+    result = _run_prereq_checker(tmp_path, env_text)
+
+    assert result.returncode == 0, result.stderr
+    assert "Launchd prerequisites look good for scope=daemon" in result.stdout
+    assert not marker.exists()
+
+
+def test_prereq_checker_rejects_non_assignment_env_syntax(tmp_path: Path) -> None:
+    marker = tmp_path / "env_command_executed.txt"
+    env_text = "\n".join(
+        [
+            "LINKEDIN_ACCESS_TOKEN=test-token",
+            "LINKEDIN_AUTHOR_URN=urn:li:person:test",
+            "OPENAI_API_KEY=test-openai-key",
+            "HUSHLINE_SOCIAL_ARCHIVE_PUSH=0",
+            f"touch {shlex.quote(str(marker))}",
+        ]
+    )
+
+    result = _run_prereq_checker(tmp_path, env_text)
+
+    assert result.returncode == 1
+    assert "unsupported env syntax" in result.stderr
+    assert not marker.exists()
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root-owned temp files cannot exercise mismatch")
+def test_prereq_checker_rejects_unexpected_daemon_env_owner(tmp_path: Path) -> None:
+    env_text = "\n".join(
+        [
+            "LINKEDIN_ACCESS_TOKEN=test-token",
+            "LINKEDIN_AUTHOR_URN=urn:li:person:test",
+            "OPENAI_API_KEY=test-openai-key",
+            "HUSHLINE_SOCIAL_ARCHIVE_PUSH=0",
+        ]
+    )
+
+    result = _run_prereq_checker(tmp_path, env_text, owner_user="root")
+
+    assert result.returncode == 1
+    assert "daemon env file must be owned by target user root" in result.stderr

@@ -5,8 +5,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AGENTS_REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DEFAULT_SOCIAL_REPO_DIR="$(cd "$AGENTS_REPO_DIR/.." && pwd)/hushline-social"
 REPO_DIR="${HUSHLINE_SOCIAL_REPO_DIR:-$DEFAULT_SOCIAL_REPO_DIR}"
+source "$AGENTS_REPO_DIR/social/scripts/lib/load-launchd-env.sh"
 ENV_FILE="$REPO_DIR/.env.launchd"
 SCOPE="gui"
+OWNER_USER=""
 EXIT_CODE=0
 
 fail() {
@@ -35,12 +37,17 @@ parse_args() {
         ENV_FILE="$2"
         shift 2
         ;;
+      --owner-user)
+        OWNER_USER="$2"
+        shift 2
+        ;;
       --help|-h)
         cat <<'EOF'
 Usage:
   ./scripts/check_launchd_prereqs.sh
   ./scripts/check_launchd_prereqs.sh --scope daemon
   ./scripts/check_launchd_prereqs.sh --env-file /path/to/.env.launchd
+  ./scripts/check_launchd_prereqs.sh --scope daemon --owner-user runner
 EOF
         exit 0
         ;;
@@ -58,6 +65,10 @@ EOF
       exit 1
       ;;
   esac
+
+  if [[ "$SCOPE" == "daemon" && -z "$OWNER_USER" && $EUID -eq 0 ]]; then
+    OWNER_USER="${SUDO_USER:-${USER:-root}}"
+  fi
 }
 
 check_repo_paths() {
@@ -93,27 +104,14 @@ check_repo_paths() {
 }
 
 load_env_file() {
-  local env_mode=""
-
-  if [[ ! -f "$ENV_FILE" ]]; then
-    fail "missing env file: $ENV_FILE"
+  if ! validate_launchd_env_file "$ENV_FILE" "$SCOPE" "$OWNER_USER"; then
+    EXIT_CODE=1
     return
   fi
 
-  if [[ ! -r "$ENV_FILE" ]]; then
-    fail "env file is not readable: $ENV_FILE"
-    return
+  if ! export_launchd_env_file "$ENV_FILE"; then
+    EXIT_CODE=1
   fi
-
-  env_mode="$(stat -f '%Lp' "$ENV_FILE" 2>/dev/null || true)"
-  if [[ -n "$env_mode" ]] && (( 10#$env_mode > 600 )); then
-    fail "$ENV_FILE should be mode 600 or stricter; found $env_mode"
-  fi
-
-  set -a
-  # shellcheck disable=SC1090
-  . "$ENV_FILE"
-  set +a
 }
 
 check_required_env() {

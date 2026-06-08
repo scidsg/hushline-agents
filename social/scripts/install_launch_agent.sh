@@ -152,11 +152,19 @@ main() {
   require_cmd sed
   require_cmd plutil
 
+  if [[ "$SCOPE" == "daemon" && $EUID -ne 0 ]]; then
+    echo "Daemon installs require sudo because they write to $SYSTEM_TARGET_DIR." >&2
+    exit 1
+  fi
+
   mkdir -p "$AGENTS_REPO_DIR/logs/social"
   mkdir -p "$REPO_DIR/logs"
   mkdir -p "$REPO_DIR/.tmp"
 
-  "$AGENTS_REPO_DIR/social/scripts/check_launchd_prereqs.sh" --scope "$SCOPE" --env-file "$ENV_FILE"
+  "$AGENTS_REPO_DIR/social/scripts/check_launchd_prereqs.sh" \
+    --scope "$SCOPE" \
+    --env-file "$ENV_FILE" \
+    --owner-user "$APP_USER"
 
   uninstall_legacy_agent \
     "$GUI_TARGET_DIR/com.hushline.social.weekly-planner.plist" \
@@ -211,10 +219,6 @@ main() {
       fi
       ;;
     daemon)
-      if [[ $EUID -ne 0 ]]; then
-        echo "Daemon installs require sudo because they write to $SYSTEM_TARGET_DIR." >&2
-        exit 1
-      fi
       mkdir -p "$SYSTEM_TARGET_DIR"
       install_daemon_unit \
         "$AGENTS_REPO_DIR/social/deploy/launchd/com.hushline.social.daily-planner.daemon.plist" \

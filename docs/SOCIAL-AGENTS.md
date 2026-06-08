@@ -59,6 +59,11 @@ Prereq check:
 The installer reads `hushline-social/.env.launchd` by default. Override with
 `--env-file /path/to/.env.launchd` or `HUSHLINE_SOCIAL_ENV_FILE`.
 
+For daemon installs, the env file must be mode `600` or stricter and owned by the
+target launchd user selected by `sudo`. The prereq checker reads only simple
+`KEY=VALUE` or `export KEY=VALUE` entries; shell commands, substitutions, and other
+shell syntax are not supported in `.env.launchd`.
+
 ## Manual Runs
 
 Use the wrappers so env loading, locking, weekend guards, retries, and repo updates match
