@@ -2746,6 +2746,88 @@ printf '%s\\n' "$RUN_LOG_PATH"
     assert "Email: [redacted-email]" in persisted_text
 
 
+def test_persisted_runner_log_redacts_secret_like_values(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    run_log_file = tmp_path / "run-log.txt"
+    persisted_log = tmp_path / "logs" / "run-20260308T000000Z-issue-1556.txt"
+
+    repo_dir.mkdir()
+    run_log_file.write_text(
+        "\n".join(
+            [
+                "TOKEN=runner-capture-secret",
+                "Authorization: Bearer runner-bearer-secret",
+                "Bearer standalone-runner-secret",
+                "api_key=codex-final-secret",
+                "password: codex-pass",
+                "Cookie: sessionid=runner-cookie; csrftoken=csrf-secret",
+                "client_secret=oauth-client-secret",
+                "AWS_ACCESS_KEY_ID=AKIA1234567890ABCDEF",
+                "remote=https://user:pass@example.invalid/repo.git",
+                "raw token ghp_1234567890abcdefghijklmnopqrstu",
+                "raw openai key sk-1234567890abcdefghijklmnopqrstu",
+                "-----BEGIN PRIVATE KEY-----",
+                "base64privatekeymaterial",
+                "-----END PRIVATE KEY-----",
+                "Email: runner@example.com",
+                "Home path: /Users/developer/hushline",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+REPO_DIR={shlex.quote(str(repo_dir))}
+RUN_LOG_TMP_FILE={shlex.quote(str(run_log_file))}
+RUN_LOG_TIMESTAMP=20260308T000000Z
+RUN_LOG_RETENTION_COUNT=10
+RUN_LOG_DIR={shlex.quote(str(persisted_log.parent))}
+RUN_LOG_GIT_PATH=""
+REPO_SLUG=scidsg/hushline
+persist_run_log 1556
+printf '%s\\n' "$RUN_LOG_PATH"
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+
+    assert Path(result.stdout.strip()) == persisted_log
+    persisted_text = persisted_log.read_text(encoding="utf-8")
+
+    assert "runner-capture-secret" not in persisted_text
+    assert "runner-bearer-secret" not in persisted_text
+    assert "standalone-runner-secret" not in persisted_text
+    assert "codex-final-secret" not in persisted_text
+    assert "codex-pass" not in persisted_text
+    assert "sessionid=runner-cookie" not in persisted_text
+    assert "oauth-client-secret" not in persisted_text
+    assert "AKIA1234567890ABCDEF" not in persisted_text
+    assert "user:pass" not in persisted_text
+    assert "ghp_1234567890abcdefghijklmnopqrstu" not in persisted_text
+    assert "sk-1234567890abcdefghijklmnopqrstu" not in persisted_text
+    assert "base64privatekeymaterial" not in persisted_text
+    assert "runner@example.com" not in persisted_text
+    assert "/Users/developer" not in persisted_text
+    assert "TOKEN=[redacted]" in persisted_text
+    assert "Authorization: Bearer [redacted]" in persisted_text
+    assert "Bearer [redacted]" in persisted_text
+    assert "api_key=[redacted]" in persisted_text
+    assert "password: [redacted]" in persisted_text
+    assert "Cookie: [redacted]" in persisted_text
+    assert "client_secret=[redacted]" in persisted_text
+    assert "[redacted-aws-access-key]" in persisted_text
+    assert "remote=https://[redacted]@example.invalid/repo.git" in persisted_text
+    assert "[redacted-token]" in persisted_text
+    assert "-----BEGIN [redacted-private-key]-----" in persisted_text
+    assert "[redacted-private-key]" in persisted_text
+    assert "-----END [redacted-private-key]-----" in persisted_text
+    assert "Email: [redacted-email]" in persisted_text
+    assert "Home path: [redacted-path]" in persisted_text
+
+
 def test_verbose_codex_output_streams_to_console_only(tmp_path: Path) -> None:
     prompt_file = tmp_path / "prompt.txt"
     output_file = tmp_path / "codex-output.txt"
