@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from types import ModuleType
 
@@ -10,6 +10,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER_PATH = ROOT / "scripts" / "weekly_hushline_code_agent_report_runner.py"
+UTC = timezone.utc  # noqa: UP017 - keep the runner importable under Python 3.9.
 
 
 @pytest.fixture(autouse=True)
