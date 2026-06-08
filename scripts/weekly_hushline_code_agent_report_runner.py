@@ -9,7 +9,7 @@ import sys
 import tempfile
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -22,6 +22,7 @@ REPORT_OUTPUT_DIR_ENV = "HUSHLINE_WEEKLY_AGENT_REPORT_OUTPUT_DIR"
 REPORT_RETENTION_ENV = "HUSHLINE_WEEKLY_AGENT_REPORT_RETENTION"
 DEFAULT_REPORT_RETENTION = 12
 LOCAL_TZ = ZoneInfo("America/Los_Angeles")
+UTC = timezone.utc  # noqa: UP017 - launchd may run this with Apple's Python 3.9.
 LOG_TIMEZONES = {
     "PDT": timezone(timedelta(hours=-7), "PDT"),
     "PST": timezone(timedelta(hours=-8), "PST"),
