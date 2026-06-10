@@ -119,6 +119,20 @@ def test_post_agent_wrappers_randomize_publish_window() -> None:
         assert "sleep_until_post_window_target" in script
 
 
+def test_post_agent_wrappers_publish_optional_mastodon_after_linkedin() -> None:
+    for script_name in [
+        "run_whistleblower_news_post_agent_launchd.sh",
+        "run_hushline_feature_post_agent_launchd.sh",
+        "run_hushline_verified_user_post_agent_launchd.sh",
+    ]:
+        script = (REPO_ROOT / "social/scripts" / script_name).read_text(encoding="utf-8")
+
+        assert "social_mastodon_enabled" in script
+        assert "agent_daily_linkedin_publisher.sh" in script
+        assert "linkedin_cmd+=(--no-push)" in script
+        assert "agent_daily_mastodon_publisher.sh" in script
+
+
 def test_legacy_article_wrappers_do_not_skip_non_wednesday_dates() -> None:
     planner = (REPO_ROOT / "social/scripts/run_weekly_article_launchd.sh").read_text(
         encoding="utf-8"
@@ -231,6 +245,7 @@ def _write_required_social_scripts(social_repo: Path) -> None:
         "plan-weekly-article-post.js",
         "plan-day.js",
         "publish-daily-linkedin.js",
+        "publish-daily-mastodon.js",
         "render-verified-user-post.js",
     ]:
         (script_dir / script_name).write_text("// test stub\n", encoding="utf-8")
@@ -313,6 +328,63 @@ def test_prereq_checker_parses_env_without_executing_shell_payload(tmp_path: Pat
     assert result.returncode == 0, result.stderr
     assert "Launchd prerequisites look good for scope=daemon" in result.stdout
     assert not marker.exists()
+
+
+def test_prereq_checker_accepts_enabled_mastodon_env(tmp_path: Path) -> None:
+    env_text = "\n".join(
+        [
+            "LINKEDIN_ACCESS_TOKEN=test-token",
+            "LINKEDIN_AUTHOR_URN=urn:li:person:test",
+            "OPENAI_API_KEY=test-openai-key",
+            "HUSHLINE_SOCIAL_ARCHIVE_PUSH=0",
+            "HUSHLINE_SOCIAL_MASTODON_ENABLED=1",
+            "MASTODON_INSTANCE_URL=https://mastodon.social",
+            "MASTODON_ACCESS_TOKEN=test-mastodon-token",
+        ]
+    )
+
+    result = _run_prereq_checker(tmp_path, env_text)
+
+    assert result.returncode == 0, result.stderr
+    assert "Launchd prerequisites look good for scope=daemon" in result.stdout
+
+
+def test_prereq_checker_rejects_enabled_mastodon_without_token(tmp_path: Path) -> None:
+    env_text = "\n".join(
+        [
+            "LINKEDIN_ACCESS_TOKEN=test-token",
+            "LINKEDIN_AUTHOR_URN=urn:li:person:test",
+            "OPENAI_API_KEY=test-openai-key",
+            "HUSHLINE_SOCIAL_ARCHIVE_PUSH=0",
+            "HUSHLINE_SOCIAL_MASTODON_ENABLED=1",
+            "MASTODON_INSTANCE_URL=https://mastodon.social",
+        ]
+    )
+
+    result = _run_prereq_checker(tmp_path, env_text)
+
+    assert result.returncode == 1
+    assert "missing required variable in" in result.stderr
+    assert "MASTODON_ACCESS_TOKEN" in result.stderr
+
+
+def test_prereq_checker_rejects_enabled_mastodon_http_instance(tmp_path: Path) -> None:
+    env_text = "\n".join(
+        [
+            "LINKEDIN_ACCESS_TOKEN=test-token",
+            "LINKEDIN_AUTHOR_URN=urn:li:person:test",
+            "OPENAI_API_KEY=test-openai-key",
+            "HUSHLINE_SOCIAL_ARCHIVE_PUSH=0",
+            "HUSHLINE_SOCIAL_MASTODON_ENABLED=1",
+            "MASTODON_INSTANCE_URL=http://mastodon.social",
+            "MASTODON_ACCESS_TOKEN=test-mastodon-token",
+        ]
+    )
+
+    result = _run_prereq_checker(tmp_path, env_text)
+
+    assert result.returncode == 1
+    assert "MASTODON_INSTANCE_URL must use https" in result.stderr
 
 
 def test_prereq_checker_rejects_non_assignment_env_syntax(tmp_path: Path) -> None:

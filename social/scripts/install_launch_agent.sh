@@ -290,6 +290,7 @@ EOF
   else
     cat <<EOF
 - required daemon env vars: OPENAI_API_KEY, HUSHLINE_SOCIAL_GITHUB_TOKEN, HUSHLINE_SOCIAL_GIT_SIGNING_KEY_PUB, LINKEDIN_ACCESS_TOKEN, LINKEDIN_AUTHOR_URN
+- optional Mastodon env vars: HUSHLINE_SOCIAL_MASTODON_ENABLED=1, MASTODON_INSTANCE_URL, MASTODON_ACCESS_TOKEN, MASTODON_VISIBILITY
 - optional Codex defaults: CODEX_MODEL=gpt-5.5, CODEX_REASONING_EFFORT=high
 - test with: sudo launchctl kickstart -k system/com.hushline.social.whistleblower-news-post-agent
 - test with: sudo launchctl kickstart -k system/com.hushline.social.hushline-feature-post-agent

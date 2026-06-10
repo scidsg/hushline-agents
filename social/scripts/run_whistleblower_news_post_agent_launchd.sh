@@ -7,6 +7,7 @@ DEFAULT_SOCIAL_REPO_DIR="$(cd "$AGENTS_REPO_DIR/.." && pwd)/hushline-social"
 REPO_DIR="${HUSHLINE_SOCIAL_REPO_DIR:-$DEFAULT_SOCIAL_REPO_DIR}"
 source "$AGENTS_REPO_DIR/social/scripts/lib/load-launchd-env.sh"
 source "$AGENTS_REPO_DIR/social/scripts/lib/random-post-window.sh"
+source "$AGENTS_REPO_DIR/social/scripts/lib/social-platforms.sh"
 source "$AGENTS_REPO_DIR/social/scripts/lib/transient-retry.sh"
 LOCK_DIR="$REPO_DIR/.tmp/whistleblower-news-post-agent.lock"
 COMBINED_LOG_FILE="${HUSHLINE_SOCIAL_COMBINED_LOG_FILE:-$AGENTS_REPO_DIR/logs/social/social-daily.log}"
@@ -40,7 +41,7 @@ Usage:
 Behavior:
   - plans one current whistleblower-related news article-share post
   - waits until a random target in the 04:00-09:00 local post window for launchd runs
-  - publishes the archived article-share post to LinkedIn
+  - publishes the archived article-share post to LinkedIn, plus Mastodon when enabled
 EOF
         exit 0
         ;;
@@ -68,10 +69,27 @@ plan_post() {
 
 publish_post() {
   cd "$REPO_DIR"
-  "$AGENTS_REPO_DIR/social/scripts/agent_daily_linkedin_publisher.sh" \
+  local -a linkedin_cmd=(
+    "$AGENTS_REPO_DIR/social/scripts/agent_daily_linkedin_publisher.sh"
     --allow-weekend \
     --date "$(effective_date)" \
     --date-root previous-article-posts
+  )
+
+  if social_mastodon_enabled; then
+    linkedin_cmd+=(--no-push)
+  fi
+
+  "${linkedin_cmd[@]}"
+
+  if social_mastodon_enabled; then
+    "$AGENTS_REPO_DIR/social/scripts/agent_daily_mastodon_publisher.sh" \
+      --allow-weekend \
+      --date "$(effective_date)" \
+      --date-root previous-article-posts
+  else
+    echo "Mastodon publisher disabled; set HUSHLINE_SOCIAL_MASTODON_ENABLED=1 to enable it."
+  fi
 }
 
 if ! mkdir -p "$REPO_DIR/.tmp"; then

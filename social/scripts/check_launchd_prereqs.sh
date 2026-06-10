@@ -6,6 +6,7 @@ AGENTS_REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DEFAULT_SOCIAL_REPO_DIR="$(cd "$AGENTS_REPO_DIR/.." && pwd)/hushline-social"
 REPO_DIR="${HUSHLINE_SOCIAL_REPO_DIR:-$DEFAULT_SOCIAL_REPO_DIR}"
 source "$AGENTS_REPO_DIR/social/scripts/lib/load-launchd-env.sh"
+source "$AGENTS_REPO_DIR/social/scripts/lib/social-platforms.sh"
 ENV_FILE="$REPO_DIR/.env.launchd"
 SCOPE="gui"
 OWNER_USER=""
@@ -79,6 +80,7 @@ check_repo_paths() {
     "$AGENTS_REPO_DIR/social/scripts/run_hushline_verified_user_post_agent_launchd.sh" \
     "$AGENTS_REPO_DIR/social/scripts/agent_daily_social_planner.sh" \
     "$AGENTS_REPO_DIR/social/scripts/agent_daily_linkedin_publisher.sh" \
+    "$AGENTS_REPO_DIR/social/scripts/agent_daily_mastodon_publisher.sh" \
     "$AGENTS_REPO_DIR/social/scripts/agent_weekly_verified_user_runner.sh" \
     "$AGENTS_REPO_DIR/social/scripts/agent_weekly_verified_user_linkedin_publisher.sh"; do
     if [[ ! -x "$path" ]]; then
@@ -90,6 +92,7 @@ check_repo_paths() {
     "$REPO_DIR/scripts/plan-weekly-article-post.js" \
     "$REPO_DIR/scripts/plan-day.js" \
     "$REPO_DIR/scripts/publish-daily-linkedin.js" \
+    "$REPO_DIR/scripts/publish-daily-mastodon.js" \
     "$REPO_DIR/scripts/render-verified-user-post.js"; do
     if [[ ! -f "$path" ]]; then
       fail "expected social content script: $path"
@@ -118,6 +121,22 @@ check_required_env() {
       fail "missing required variable in $ENV_FILE: $name"
     fi
   done
+
+  if social_mastodon_enabled; then
+    for name in MASTODON_INSTANCE_URL MASTODON_ACCESS_TOKEN; do
+      if [[ -z "${!name:-}" ]]; then
+        fail "missing required variable in $ENV_FILE when HUSHLINE_SOCIAL_MASTODON_ENABLED=1: $name"
+      fi
+    done
+
+    case "${MASTODON_INSTANCE_URL:-}" in
+      https://*)
+        ;;
+      *)
+        fail "MASTODON_INSTANCE_URL must use https when HUSHLINE_SOCIAL_MASTODON_ENABLED=1"
+        ;;
+    esac
+  fi
 
   if [[ "$SCOPE" != "daemon" ]]; then
     if [[ -z "${OPENAI_API_KEY:-}" ]]; then

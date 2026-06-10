@@ -33,6 +33,10 @@ The scheduled posting agents plan and publish through one launchd job per conten
 Direct manual runs do not apply randomized timing or weekly weekday selection unless
 `HUSHLINE_SOCIAL_RANDOMIZE_POST_WINDOW=1` is set.
 
+LinkedIn is always published first. Mastodon is an optional second target; enable it
+with `HUSHLINE_SOCIAL_MASTODON_ENABLED=1`, `MASTODON_INSTANCE_URL`, and
+`MASTODON_ACCESS_TOKEN` in the launchd env file.
+
 ## Install
 
 GUI user LaunchAgents:
@@ -61,6 +65,18 @@ For daemon installs, the env file must be mode `600` or stricter and owned by th
 target launchd user selected by `sudo`. The prereq checker reads only simple
 `KEY=VALUE` or `export KEY=VALUE` entries; shell commands, substitutions, and other
 shell syntax are not supported in `.env.launchd`.
+
+Required publishing env:
+
+- `LINKEDIN_ACCESS_TOKEN`
+- `LINKEDIN_AUTHOR_URN`
+
+Optional Mastodon publishing env:
+
+- `HUSHLINE_SOCIAL_MASTODON_ENABLED=1`
+- `MASTODON_INSTANCE_URL` using `https://`
+- `MASTODON_ACCESS_TOKEN`
+- `MASTODON_VISIBILITY` set to `public`, `unlisted`, `private`, or `direct`; defaults to `public`
 
 ## Manual Runs
 
@@ -99,7 +115,7 @@ hushline-agents/logs/social/social-daily.log
 
 - Change launchd schedules, wrapper behavior, agent shell logic, install/prereq logic, and
   social runner docs in this repository.
-- Change social post templates, content planning code, LinkedIn publishing code, assets,
+- Change social post templates, content planning code, platform publishing code, assets,
   and generated archives in `hushline-social`.
 - Do not commit `.env.launchd`, Codex transcripts, access tokens, private keys, or
   unsanitized runtime logs.
