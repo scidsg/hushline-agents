@@ -316,22 +316,32 @@ def test_render_report_writes_narrative_team_briefs_and_appendix(tmp_path: Path)
     assert "From: weekly-report@example.com" in report
     assert "To: maintainer@example.com" in report
     assert "Workspace: shared Hush Line agents" in report
-    assert report.index("Usage Highlights:") < report.index("This Week in Brief:")
+    assert "HUSH LINE AGENT WEEKLY" in report
+    assert report.index("Executive Snapshot") < report.index("Workstream Scorecard")
+    assert report.index("Workstream Scorecard") < report.index("Leadership Watchlist")
+    assert report.index("Leadership Watchlist") < report.index("Capacity and Usage")
+    assert report.index("Capacity and Usage") < report.index("Workstream Notes")
     assert "Code Agent               60% used / 40% left" in report
     assert "Shared Codex Workspace" in report
     assert "100% share; 12,000 tokens" in report
-    assert report.index("This Week in Brief:") < report.index("Team Briefs:")
-    this_week = report.split("This Week in Brief:", 1)[1].split("Team Briefs:", 1)[0]
-    assert "\n-" not in this_week
-    assert "Engineering moved 1 pull request (#2001)" in this_week
-    assert "Social published 1 LinkedIn post for friday" in this_week
-    assert "Administrative automation sent 1 weekly brief" in this_week
-    assert "Finance remains an in-flight team area" in this_week
+    executive_snapshot = report.split("Executive Snapshot", 1)[1].split(
+        "Workstream Scorecard",
+        1,
+    )[0]
+    assert "\n- " not in executive_snapshot
+    assert "Bottom line: Engineering moved 1 PR (#2001)" in executive_snapshot
+    assert "Social published 1 post for friday" in executive_snapshot
+    assert "Administrative reporting delivered 1 brief" in executive_snapshot
+    assert "Coverage gap: finance remains in-flight" in executive_snapshot
+    assert "Readout" in report
+    assert "Engineering - Clear" in report
+    assert "Social - Needs review" in report
+    assert "Next: Clear 1 open signal before next cycle." in report
     assert "Engineering Team:" in report
     assert "Social Team:" in report
     assert "Administrative Team:" in report
     assert "Finance Team:" in report
-    assert "Decisions and Follow-ups:" in report
+    assert "Leadership Watchlist" in report
     assert "Social: May 15, 2026" in report
     assert "Operational Appendix:" in report
     assert "Completed work events: 4" in report
@@ -348,7 +358,7 @@ def test_render_report_writes_narrative_team_briefs_and_appendix(tmp_path: Path)
     assert "Attention Log:" in report
     assert "No-op Volume:" in report
     assert "Tor code agent: No assigned issues (1)" in report
-    assert "raw operational volume is kept in the appendix" in report
+    assert "Executive sections emphasize outcomes, risks, asks, and capacity" in report
 
 
 def test_send_with_mail_app_uses_native_mail_and_fixed_envelope(
