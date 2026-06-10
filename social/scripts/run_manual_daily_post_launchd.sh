@@ -6,6 +6,7 @@ AGENTS_REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DEFAULT_SOCIAL_REPO_DIR="$(cd "$AGENTS_REPO_DIR/.." && pwd)/hushline-social"
 REPO_DIR="${HUSHLINE_SOCIAL_REPO_DIR:-$DEFAULT_SOCIAL_REPO_DIR}"
 source "$AGENTS_REPO_DIR/social/scripts/lib/load-launchd-env.sh"
+source "$AGENTS_REPO_DIR/social/scripts/lib/social-platforms.sh"
 source "$AGENTS_REPO_DIR/social/scripts/lib/update-run-repos.sh"
 LOCK_DIR="$REPO_DIR/.tmp/manual-daily-post.lock"
 ENV_FILE=""
@@ -45,8 +46,8 @@ Behavior:
   - updates hushline-social and ../hushline-screenshots like the scheduled planner wrapper
   - chooses the next available daily archive container for the requested date
   - runs the daily planner for that archive container
-  - publishes the rendered result to LinkedIn
-  - pushes that dated archive container after publication succeeds
+  - publishes the rendered result to LinkedIn, plus Mastodon when enabled
+  - pushes that dated archive container after all enabled network publishers succeed
 EOF
         exit 0
         ;;
@@ -145,4 +146,22 @@ echo "Selected archive container: $ARCHIVE_KEY"
 
 cd "$REPO_DIR"
 "$AGENTS_REPO_DIR/social/scripts/agent_daily_social_planner.sh" --date "$(effective_date)" --archive-key "$ARCHIVE_KEY"
-"$AGENTS_REPO_DIR/social/scripts/agent_daily_linkedin_publisher.sh" --date "$(effective_date)" --archive-key "$ARCHIVE_KEY"
+linkedin_cmd=(
+  "$AGENTS_REPO_DIR/social/scripts/agent_daily_linkedin_publisher.sh"
+  --date "$(effective_date)"
+  --archive-key "$ARCHIVE_KEY"
+)
+
+if social_mastodon_enabled; then
+  linkedin_cmd+=(--no-push)
+fi
+
+"${linkedin_cmd[@]}"
+
+if social_mastodon_enabled; then
+  "$AGENTS_REPO_DIR/social/scripts/agent_daily_mastodon_publisher.sh" \
+    --date "$(effective_date)" \
+    --archive-key "$ARCHIVE_KEY"
+else
+  echo "Mastodon publisher disabled; set HUSHLINE_SOCIAL_MASTODON_ENABLED=1 to enable it."
+fi

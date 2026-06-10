@@ -7,6 +7,7 @@ DEFAULT_SOCIAL_REPO_DIR="$(cd "$AGENTS_REPO_DIR/.." && pwd)/hushline-social"
 REPO_DIR="${HUSHLINE_SOCIAL_REPO_DIR:-$DEFAULT_SOCIAL_REPO_DIR}"
 source "$AGENTS_REPO_DIR/social/scripts/lib/load-launchd-env.sh"
 source "$AGENTS_REPO_DIR/social/scripts/lib/random-post-window.sh"
+source "$AGENTS_REPO_DIR/social/scripts/lib/social-platforms.sh"
 source "$AGENTS_REPO_DIR/social/scripts/lib/transient-retry.sh"
 source "$AGENTS_REPO_DIR/social/scripts/lib/update-run-repos.sh"
 LOCK_DIR="$REPO_DIR/.tmp/hushline-feature-post-agent.lock"
@@ -44,7 +45,7 @@ Usage:
 Behavior:
   - plans one Hush Line feature post using screenshots and HTML templates
   - waits until a random target in the 04:00-09:00 local post window for launchd runs
-  - publishes the archived feature post to LinkedIn
+  - publishes the archived feature post to LinkedIn, plus Mastodon when enabled
 EOF
         exit 0
         ;;
@@ -73,10 +74,27 @@ plan_post() {
 }
 
 publish_post() {
-  "$AGENTS_REPO_DIR/social/scripts/agent_daily_linkedin_publisher.sh" \
+  local -a linkedin_cmd=(
+    "$AGENTS_REPO_DIR/social/scripts/agent_daily_linkedin_publisher.sh"
     --allow-weekend \
     --date "$(effective_date)" \
     --archive-key "$ARCHIVE_KEY"
+  )
+
+  if social_mastodon_enabled; then
+    linkedin_cmd+=(--no-push)
+  fi
+
+  "${linkedin_cmd[@]}"
+
+  if social_mastodon_enabled; then
+    "$AGENTS_REPO_DIR/social/scripts/agent_daily_mastodon_publisher.sh" \
+      --allow-weekend \
+      --date "$(effective_date)" \
+      --archive-key "$ARCHIVE_KEY"
+  else
+    echo "Mastodon publisher disabled; set HUSHLINE_SOCIAL_MASTODON_ENABLED=1 to enable it."
+  fi
 }
 
 if ! mkdir -p "$REPO_DIR/.tmp"; then
