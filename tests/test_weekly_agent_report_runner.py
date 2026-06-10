@@ -35,7 +35,7 @@ def load_runner() -> ModuleType:
 def test_report_addresses_and_title_use_environment() -> None:
     runner = load_runner()
 
-    assert runner.REPORT_TITLE == "Weekly Agent Report"
+    assert runner.REPORT_TITLE == "Hush Line Weekly Agent Brief"
     assert runner.report_from() == "weekly-report@example.com"
     assert runner.report_to() == "maintainer@example.com"
 
@@ -48,6 +48,8 @@ def test_default_sources_match_monitored_logs() -> None:
     assert Path.home() / ".codex/logs/hushline-code-agent.log" in paths
     assert Path.home() / "tor-code-agent/logs/tor-agent.err.log" in paths
     assert ROOT / "logs/social/social-daily.log" in paths
+    assert ROOT / "logs/weekly-agent-report.stdout.log" in paths
+    assert ROOT / "logs/weekly-agent-report.stderr.log" in paths
 
 
 def test_collect_events_from_hushline_runner_log(tmp_path: Path) -> None:
@@ -125,7 +127,7 @@ def test_collect_events_from_social_runner_log(tmp_path: Path) -> None:
     assert any(event.category == "attention" for event in events)
 
 
-def test_render_report_groups_completed_attention_and_noop_events(tmp_path: Path) -> None:
+def test_render_report_writes_narrative_team_briefs_and_appendix(tmp_path: Path) -> None:
     runner = load_runner()
     source = runner.LogSource("Hush Line issue runner", tmp_path / "runner.log")
     since = datetime(2026, 5, 10, 0, 0, tzinfo=UTC)
@@ -158,35 +160,53 @@ def test_render_report_groups_completed_attention_and_noop_events(tmp_path: Path
             category="attention",
             summary="Error: Post messaging overlaps too heavily.",
         ),
+        runner.AgentEvent(
+            timestamp=datetime(2026, 5, 16, 13, 0, tzinfo=UTC),
+            source="Weekly report runner",
+            category="completed",
+            summary="Sent weekly brief",
+            detail="Sent Hush Line Weekly Agent Brief from weekly-report@example.com",
+        ),
+        runner.AgentEvent(
+            timestamp=datetime(2026, 5, 16, 13, 1, tzinfo=UTC),
+            source="Weekly report runner",
+            category="completed",
+            summary="Sent weekly brief",
+            detail="Sent Hush Line Weekly Agent Brief from weekly-report@example.com",
+        ),
     ]
 
     report = runner.render_report(events, [], [source], since, until)
 
-    assert "Weekly Agent Report" in report
+    assert "Hush Line Weekly Agent Brief" in report
     assert "From: weekly-report@example.com" in report
     assert "To: maintainer@example.com" in report
-    assert report.index("Executive Summary:") < report.index("Overview:")
-    executive_summary = report.split("Executive Summary:", 1)[1].split("Overview:", 1)[0]
-    assert "\n-" not in executive_summary
-    assert "The monitored local runners recorded 4 notable events" in executive_summary
-    assert "the social runner published LinkedIn posts for friday" in executive_summary
-    assert (
-        "PR activity included opened PR #2001 (https://github.com/scidsg/hushline/pull/2001)"
-    ) in executive_summary
-    assert (
-        "Review is needed for Hush Line social runner - Error: Post messaging overlaps too heavily"
-    ) in executive_summary
-    assert "Completed work events: 2" in report
+    assert "Workspace: shared Hush Line agents" in report
+    assert report.index("This Week in Brief:") < report.index("Team Briefs:")
+    this_week = report.split("This Week in Brief:", 1)[1].split("Team Briefs:", 1)[0]
+    assert "\n-" not in this_week
+    assert "Engineering moved 1 pull request (#2001)" in this_week
+    assert "Social published 1 LinkedIn post for friday" in this_week
+    assert "Administrative automation sent 1 weekly brief" in this_week
+    assert "Finance remains an in-flight team area" in this_week
+    assert "Engineering Team:" in report
+    assert "Social Team:" in report
+    assert "Administrative Team:" in report
+    assert "Finance Team:" in report
+    assert "Decisions and Follow-ups:" in report
+    assert "Social: May 15, 2026" in report
+    assert "Operational Appendix:" in report
+    assert "Completed work events: 4" in report
     assert (
         "[Hush Line issue runner] Opened PR: https://github.com/scidsg/hushline/pull/2001"
     ) in report
     assert (
         "[Hush Line social runner] Published LinkedIn post: Published LinkedIn post for friday"
     ) in report
-    assert "Needs Attention:" in report
-    assert "No-op Summary:" in report
+    assert "Attention Log:" in report
+    assert "No-op Volume:" in report
     assert "Tor code agent: No assigned issues (1)" in report
-    assert "Full log transcripts are not included in the email." in report
+    assert "raw operational volume is kept in the appendix" in report
 
 
 def test_send_with_mail_app_uses_native_mail_and_fixed_envelope(
@@ -290,7 +310,7 @@ def test_main_persists_report_body_by_default(
     reports = list(output_dir.glob("weekly-agent-report-*.txt"))
     assert result == 0
     assert len(reports) == 1
-    assert "Weekly Agent Report" in reports[0].read_text(encoding="utf-8")
+    assert "Hush Line Weekly Agent Brief" in reports[0].read_text(encoding="utf-8")
     assert len(sent) == 1
 
 
@@ -306,7 +326,7 @@ def test_main_dry_run_does_not_write_default_persisted_report(
     result = runner.main(["--dry-run", "--log-file", str(tmp_path / "missing.log")])
 
     assert result == 0
-    assert "Weekly Agent Report" in capsys.readouterr().out
+    assert "Hush Line Weekly Agent Brief" in capsys.readouterr().out
     assert not output_dir.exists()
 
 
