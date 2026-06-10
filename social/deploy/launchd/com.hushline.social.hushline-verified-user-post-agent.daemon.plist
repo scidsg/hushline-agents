@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.hushline.social.linkedin.daily</string>
+  <string>com.hushline.social.hushline-verified-user-post-agent</string>
 
   <key>ProgramArguments</key>
   <array>
-    <string>__REPO_DIR__/social/scripts/run_daily_linkedin_launchd.sh</string>
+    <string>__REPO_DIR__/social/scripts/run_hushline_verified_user_post_agent_launchd.sh</string>
   </array>
 
   <key>WorkingDirectory</key>
@@ -49,48 +49,48 @@
       <key>Weekday</key>
       <integer>1</integer>
       <key>Hour</key>
-      <integer>6</integer>
+      <integer>4</integer>
       <key>Minute</key>
-      <integer>10</integer>
+      <integer>0</integer>
     </dict>
     <dict>
       <key>Weekday</key>
       <integer>2</integer>
       <key>Hour</key>
-      <integer>6</integer>
+      <integer>4</integer>
       <key>Minute</key>
-      <integer>10</integer>
+      <integer>0</integer>
     </dict>
     <dict>
       <key>Weekday</key>
       <integer>3</integer>
       <key>Hour</key>
-      <integer>6</integer>
+      <integer>4</integer>
       <key>Minute</key>
-      <integer>10</integer>
+      <integer>0</integer>
     </dict>
     <dict>
       <key>Weekday</key>
       <integer>4</integer>
       <key>Hour</key>
-      <integer>6</integer>
+      <integer>4</integer>
       <key>Minute</key>
-      <integer>10</integer>
+      <integer>0</integer>
     </dict>
     <dict>
       <key>Weekday</key>
       <integer>5</integer>
       <key>Hour</key>
-      <integer>6</integer>
+      <integer>4</integer>
       <key>Minute</key>
-      <integer>10</integer>
+      <integer>0</integer>
     </dict>
   </array>
 
   <key>StandardOutPath</key>
-  <string>__REPO_DIR__/logs/social/linkedin-daily.stdout.log</string>
+  <string>__REPO_DIR__/logs/social/hushline-verified-user-post-agent.stdout.log</string>
 
   <key>StandardErrorPath</key>
-  <string>__REPO_DIR__/logs/social/linkedin-daily.stderr.log</string>
+  <string>__REPO_DIR__/logs/social/hushline-verified-user-post-agent.stderr.log</string>
 </dict>
 </plist>

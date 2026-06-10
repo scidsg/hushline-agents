@@ -19,6 +19,12 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from validate_social_plists import PlistValidationError, validate_plist_path  # noqa: E402
 
+POST_AGENT_LABELS = {
+    "com.hushline.social.whistleblower-news-post-agent",
+    "com.hushline.social.hushline-feature-post-agent",
+    "com.hushline.social.hushline-verified-user-post-agent",
+}
+
 
 def test_social_launchd_templates_execute_agents_repo_scripts() -> None:
     for plist_path in SOCIAL_PLIST_DIR.glob("com.hushline.social.*.plist"):
@@ -42,6 +48,90 @@ def test_social_launchd_templates_pass_social_repo_dir_and_logs() -> None:
         )
         assert plist["StandardOutPath"].startswith("__REPO_DIR__/logs/social/")
         assert plist["StandardErrorPath"].startswith("__REPO_DIR__/logs/social/")
+
+
+def test_social_launchd_templates_use_named_post_agents() -> None:
+    labels = {
+        plistlib.loads(plist_path.read_bytes())["Label"]
+        for plist_path in SOCIAL_PLIST_DIR.glob("com.hushline.social.*.plist")
+    }
+
+    assert labels == POST_AGENT_LABELS
+
+
+def test_daily_post_agent_templates_start_at_morning_publish_window() -> None:
+    expected = {
+        "com.hushline.social.whistleblower-news-post-agent.plist": (
+            "com.hushline.social.whistleblower-news-post-agent",
+            4,
+            0,
+        ),
+        "com.hushline.social.whistleblower-news-post-agent.daemon.plist": (
+            "com.hushline.social.whistleblower-news-post-agent",
+            4,
+            0,
+        ),
+        "com.hushline.social.hushline-feature-post-agent.plist": (
+            "com.hushline.social.hushline-feature-post-agent",
+            4,
+            0,
+        ),
+        "com.hushline.social.hushline-feature-post-agent.daemon.plist": (
+            "com.hushline.social.hushline-feature-post-agent",
+            4,
+            0,
+        ),
+    }
+
+    for plist_name, (label, hour, minute) in expected.items():
+        plist = plistlib.loads((SOCIAL_PLIST_DIR / plist_name).read_bytes())
+        schedule = plist["StartCalendarInterval"]
+
+        assert plist["Label"] == label
+        assert "Weekday" not in schedule
+        assert schedule["Hour"] == hour
+        assert schedule["Minute"] == minute
+
+
+def test_verified_user_post_agent_runs_once_on_weekdays() -> None:
+    for plist_name in [
+        "com.hushline.social.hushline-verified-user-post-agent.plist",
+        "com.hushline.social.hushline-verified-user-post-agent.daemon.plist",
+    ]:
+        plist = plistlib.loads((SOCIAL_PLIST_DIR / plist_name).read_bytes())
+        schedule = plist["StartCalendarInterval"]
+
+        assert plist["Label"] == "com.hushline.social.hushline-verified-user-post-agent"
+        assert [entry["Weekday"] for entry in schedule] == [1, 2, 3, 4, 5]
+        assert {entry["Hour"] for entry in schedule} == {4}
+        assert {entry["Minute"] for entry in schedule} == {0}
+
+
+def test_post_agent_wrappers_randomize_publish_window() -> None:
+    for script_name in [
+        "run_whistleblower_news_post_agent_launchd.sh",
+        "run_hushline_feature_post_agent_launchd.sh",
+        "run_hushline_verified_user_post_agent_launchd.sh",
+    ]:
+        script = (REPO_ROOT / "social/scripts" / script_name).read_text(encoding="utf-8")
+
+        assert "random_post_window_target_epoch" in script
+        assert "sleep_until_post_window_target" in script
+
+
+def test_legacy_article_wrappers_do_not_skip_non_wednesday_dates() -> None:
+    planner = (REPO_ROOT / "social/scripts/run_weekly_article_launchd.sh").read_text(
+        encoding="utf-8"
+    )
+    publisher = (REPO_ROOT / "social/scripts/run_weekly_article_linkedin_launchd.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "skip_unless_wednesday" not in planner
+    assert "skip_unless_wednesday" not in publisher
+    assert "non-Wednesday" not in planner
+    assert "non-Wednesday" not in publisher
+    assert "HUSHLINE_SOCIAL_ARTICLE_PUBLISH_RANDOM_DELAY_SECONDS" in publisher
 
 
 def test_social_plist_validator_accepts_launchd_templates() -> None:
@@ -71,7 +161,11 @@ def test_runner_dashboard_tails_social_logs_from_agents_repo() -> None:
     script = (REPO_ROOT / "scripts" / "open_runner_dashboard.sh").read_text(encoding="utf-8")
 
     assert "$HOME/hushline-agents/logs/social/social-daily.log" in script
-    assert "$HOME/hushline-agents/logs/social/daily-planner.stdout.log" in script
+    assert "$HOME/hushline-agents/logs/social/hushline-feature-post-agent.stdout.log" in script
+    assert "$HOME/hushline-agents/logs/social/whistleblower-news-post-agent.stdout.log" in script
+    assert (
+        "$HOME/hushline-agents/logs/social/hushline-verified-user-post-agent.stdout.log" in script
+    )
     assert "$HOME/hushline-social/logs/" not in script
 
 

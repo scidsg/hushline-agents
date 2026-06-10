@@ -12,6 +12,7 @@ DATE_ROOT="previous-posts"
 DRY_RUN=0
 FORCE=0
 NO_PUSH=0
+ALLOW_WEEKEND=0
 
 effective_archive_root() {
   printf '%s\n' "${DATE_ROOT#./}"
@@ -95,6 +96,10 @@ parse_args() {
         NO_PUSH=1
         shift
         ;;
+      --allow-weekend)
+        ALLOW_WEEKEND=1
+        shift
+        ;;
       --help|-h)
         cat <<'EOF'
 Usage:
@@ -109,6 +114,7 @@ Behavior:
   - Finds the post for today or the supplied date
   - Publishes it to LinkedIn
   - Pushes the dated archive folder after successful publication
+  - Skips weekends unless --allow-weekend is passed
 EOF
         exit 0
         ;;
@@ -143,6 +149,10 @@ weekday_number() {
 }
 
 skip_if_weekend() {
+  if (( ALLOW_WEEKEND == 1 )); then
+    return
+  fi
+
   local publish_date=""
   local weekday=""
   publish_date="$(effective_date)"
@@ -177,6 +187,7 @@ main() {
   [[ -n "$DATE_OVERRIDE" ]] && cmd+=(--date "$DATE_OVERRIDE")
   [[ -n "$ARCHIVE_KEY" ]] && cmd+=(--archive-key "$ARCHIVE_KEY")
   [[ -n "$DATE_ROOT" ]] && cmd+=(--date-root "$DATE_ROOT")
+  (( ALLOW_WEEKEND == 1 )) && cmd+=(--allow-weekend)
   (( DRY_RUN == 1 )) && cmd+=(--dry-run)
   (( FORCE == 1 )) && cmd+=(--force)
 

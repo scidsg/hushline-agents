@@ -20,6 +20,7 @@ DARK_RATIO=""
 NO_RENDER=0
 NO_PUSH=0
 FORCE_PUSH=0
+ALLOW_WEEKEND=0
 LAST_VALIDATION_OUTPUT=""
 EXCLUDED_SCREENSHOTS=()
 
@@ -76,6 +77,10 @@ parse_args() {
         FORCE_PUSH=1
         shift
         ;;
+      --allow-weekend)
+        ALLOW_WEEKEND=1
+        shift
+        ;;
       --help|-h)
         cat <<'EOF'
 Usage:
@@ -90,6 +95,7 @@ Behavior:
   - Retries with alternate shortlisted screenshots when validation rejects a repetitive angle
   - Keeps the daily archive local by default
   - Pushes the daily archive only when --push-render-archive is passed or HUSHLINE_SOCIAL_DAILY_PUSH_ON_RENDER=1
+  - Skips weekends unless --allow-weekend is passed
 EOF
         exit 0
         ;;
@@ -106,6 +112,10 @@ weekday_number() {
 }
 
 skip_if_weekend() {
+  if (( ALLOW_WEEKEND == 1 )); then
+    return
+  fi
+
   local weekday=""
   weekday="$(weekday_number "$DATE")"
   if [[ "$weekday" == "6" || "$weekday" == "7" ]]; then

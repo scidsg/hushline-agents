@@ -74,12 +74,9 @@ EOF
 check_repo_paths() {
   local path=""
   for path in \
-    "$AGENTS_REPO_DIR/social/scripts/run_daily_planner_launchd.sh" \
-    "$AGENTS_REPO_DIR/social/scripts/run_daily_linkedin_launchd.sh" \
-    "$AGENTS_REPO_DIR/social/scripts/run_weekly_article_launchd.sh" \
-    "$AGENTS_REPO_DIR/social/scripts/run_weekly_article_linkedin_launchd.sh" \
-    "$AGENTS_REPO_DIR/social/scripts/run_verified_user_weekly_launchd.sh" \
-    "$AGENTS_REPO_DIR/social/scripts/run_verified_user_weekly_linkedin_launchd.sh" \
+    "$AGENTS_REPO_DIR/social/scripts/run_whistleblower_news_post_agent_launchd.sh" \
+    "$AGENTS_REPO_DIR/social/scripts/run_hushline_feature_post_agent_launchd.sh" \
+    "$AGENTS_REPO_DIR/social/scripts/run_hushline_verified_user_post_agent_launchd.sh" \
     "$AGENTS_REPO_DIR/social/scripts/agent_daily_social_planner.sh" \
     "$AGENTS_REPO_DIR/social/scripts/agent_daily_linkedin_publisher.sh" \
     "$AGENTS_REPO_DIR/social/scripts/agent_weekly_verified_user_runner.sh" \

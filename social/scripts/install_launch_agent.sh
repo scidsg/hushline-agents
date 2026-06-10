@@ -169,81 +169,76 @@ main() {
   uninstall_legacy_agent \
     "$GUI_TARGET_DIR/com.hushline.social.weekly-planner.plist" \
     "com.hushline.social.weekly-planner"
+  uninstall_legacy_agent \
+    "$GUI_TARGET_DIR/com.hushline.social.daily-planner.plist" \
+    "com.hushline.social.daily-planner"
+  uninstall_legacy_agent \
+    "$GUI_TARGET_DIR/com.hushline.social.linkedin.daily.plist" \
+    "com.hushline.social.linkedin.daily"
+  uninstall_legacy_agent \
+    "$GUI_TARGET_DIR/com.hushline.social.weekly-article.plist" \
+    "com.hushline.social.weekly-article"
+  uninstall_legacy_agent \
+    "$GUI_TARGET_DIR/com.hushline.social.linkedin.weekly-article.plist" \
+    "com.hushline.social.linkedin.weekly-article"
+  uninstall_legacy_agent \
+    "$GUI_TARGET_DIR/com.hushline.social.verified-user.weekly.plist" \
+    "com.hushline.social.verified-user.weekly"
+  uninstall_legacy_agent \
+    "$GUI_TARGET_DIR/com.hushline.social.linkedin.verified-user.weekly.plist" \
+    "com.hushline.social.linkedin.verified-user.weekly"
+
+  if [[ $EUID -eq 0 ]]; then
+    uninstall_daemon_unit \
+      "$SYSTEM_TARGET_DIR/com.hushline.social.daily-planner.plist" \
+      "com.hushline.social.daily-planner"
+    uninstall_daemon_unit \
+      "$SYSTEM_TARGET_DIR/com.hushline.social.linkedin.daily.plist" \
+      "com.hushline.social.linkedin.daily"
+    uninstall_daemon_unit \
+      "$SYSTEM_TARGET_DIR/com.hushline.social.weekly-article.plist" \
+      "com.hushline.social.weekly-article"
+    uninstall_daemon_unit \
+      "$SYSTEM_TARGET_DIR/com.hushline.social.linkedin.weekly-article.plist" \
+      "com.hushline.social.linkedin.weekly-article"
+    uninstall_daemon_unit \
+      "$SYSTEM_TARGET_DIR/com.hushline.social.verified-user.weekly.plist" \
+      "com.hushline.social.verified-user.weekly"
+    uninstall_daemon_unit \
+      "$SYSTEM_TARGET_DIR/com.hushline.social.linkedin.verified-user.weekly.plist" \
+      "com.hushline.social.linkedin.verified-user.weekly"
+  fi
 
   case "$SCOPE" in
     gui)
       mkdir -p "$GUI_TARGET_DIR"
       install_gui_unit \
-        "$AGENTS_REPO_DIR/social/deploy/launchd/com.hushline.social.daily-planner.plist" \
-        "$GUI_TARGET_DIR/com.hushline.social.daily-planner.plist" \
-        "com.hushline.social.daily-planner"
+        "$AGENTS_REPO_DIR/social/deploy/launchd/com.hushline.social.whistleblower-news-post-agent.plist" \
+        "$GUI_TARGET_DIR/com.hushline.social.whistleblower-news-post-agent.plist" \
+        "com.hushline.social.whistleblower-news-post-agent"
       install_gui_unit \
-        "$AGENTS_REPO_DIR/social/deploy/launchd/com.hushline.social.linkedin.daily.plist" \
-        "$GUI_TARGET_DIR/com.hushline.social.linkedin.daily.plist" \
-        "com.hushline.social.linkedin.daily"
+        "$AGENTS_REPO_DIR/social/deploy/launchd/com.hushline.social.hushline-feature-post-agent.plist" \
+        "$GUI_TARGET_DIR/com.hushline.social.hushline-feature-post-agent.plist" \
+        "com.hushline.social.hushline-feature-post-agent"
       install_gui_unit \
-        "$AGENTS_REPO_DIR/social/deploy/launchd/com.hushline.social.weekly-article.plist" \
-        "$GUI_TARGET_DIR/com.hushline.social.weekly-article.plist" \
-        "com.hushline.social.weekly-article"
-      install_gui_unit \
-        "$AGENTS_REPO_DIR/social/deploy/launchd/com.hushline.social.linkedin.weekly-article.plist" \
-        "$GUI_TARGET_DIR/com.hushline.social.linkedin.weekly-article.plist" \
-        "com.hushline.social.linkedin.weekly-article"
-      install_gui_unit \
-        "$AGENTS_REPO_DIR/social/deploy/launchd/com.hushline.social.verified-user.weekly.plist" \
-        "$GUI_TARGET_DIR/com.hushline.social.verified-user.weekly.plist" \
-        "com.hushline.social.verified-user.weekly"
-      install_gui_unit \
-        "$AGENTS_REPO_DIR/social/deploy/launchd/com.hushline.social.linkedin.verified-user.weekly.plist" \
-        "$GUI_TARGET_DIR/com.hushline.social.linkedin.verified-user.weekly.plist" \
-        "com.hushline.social.linkedin.verified-user.weekly"
-      if [[ $EUID -eq 0 ]]; then
-        uninstall_daemon_unit \
-          "$SYSTEM_TARGET_DIR/com.hushline.social.daily-planner.plist" \
-          "com.hushline.social.daily-planner"
-        uninstall_daemon_unit \
-          "$SYSTEM_TARGET_DIR/com.hushline.social.linkedin.daily.plist" \
-          "com.hushline.social.linkedin.daily"
-        uninstall_daemon_unit \
-          "$SYSTEM_TARGET_DIR/com.hushline.social.weekly-article.plist" \
-          "com.hushline.social.weekly-article"
-        uninstall_daemon_unit \
-          "$SYSTEM_TARGET_DIR/com.hushline.social.linkedin.weekly-article.plist" \
-          "com.hushline.social.linkedin.weekly-article"
-        uninstall_daemon_unit \
-          "$SYSTEM_TARGET_DIR/com.hushline.social.verified-user.weekly.plist" \
-          "com.hushline.social.verified-user.weekly"
-        uninstall_daemon_unit \
-          "$SYSTEM_TARGET_DIR/com.hushline.social.linkedin.verified-user.weekly.plist" \
-          "com.hushline.social.linkedin.verified-user.weekly"
-      fi
+        "$AGENTS_REPO_DIR/social/deploy/launchd/com.hushline.social.hushline-verified-user-post-agent.plist" \
+        "$GUI_TARGET_DIR/com.hushline.social.hushline-verified-user-post-agent.plist" \
+        "com.hushline.social.hushline-verified-user-post-agent"
       ;;
     daemon)
       mkdir -p "$SYSTEM_TARGET_DIR"
       install_daemon_unit \
-        "$AGENTS_REPO_DIR/social/deploy/launchd/com.hushline.social.daily-planner.daemon.plist" \
-        "$SYSTEM_TARGET_DIR/com.hushline.social.daily-planner.plist" \
-        "com.hushline.social.daily-planner"
+        "$AGENTS_REPO_DIR/social/deploy/launchd/com.hushline.social.whistleblower-news-post-agent.daemon.plist" \
+        "$SYSTEM_TARGET_DIR/com.hushline.social.whistleblower-news-post-agent.plist" \
+        "com.hushline.social.whistleblower-news-post-agent"
       install_daemon_unit \
-        "$AGENTS_REPO_DIR/social/deploy/launchd/com.hushline.social.linkedin.daily.daemon.plist" \
-        "$SYSTEM_TARGET_DIR/com.hushline.social.linkedin.daily.plist" \
-        "com.hushline.social.linkedin.daily"
+        "$AGENTS_REPO_DIR/social/deploy/launchd/com.hushline.social.hushline-feature-post-agent.daemon.plist" \
+        "$SYSTEM_TARGET_DIR/com.hushline.social.hushline-feature-post-agent.plist" \
+        "com.hushline.social.hushline-feature-post-agent"
       install_daemon_unit \
-        "$AGENTS_REPO_DIR/social/deploy/launchd/com.hushline.social.weekly-article.daemon.plist" \
-        "$SYSTEM_TARGET_DIR/com.hushline.social.weekly-article.plist" \
-        "com.hushline.social.weekly-article"
-      install_daemon_unit \
-        "$AGENTS_REPO_DIR/social/deploy/launchd/com.hushline.social.linkedin.weekly-article.daemon.plist" \
-        "$SYSTEM_TARGET_DIR/com.hushline.social.linkedin.weekly-article.plist" \
-        "com.hushline.social.linkedin.weekly-article"
-      install_daemon_unit \
-        "$AGENTS_REPO_DIR/social/deploy/launchd/com.hushline.social.verified-user.weekly.daemon.plist" \
-        "$SYSTEM_TARGET_DIR/com.hushline.social.verified-user.weekly.plist" \
-        "com.hushline.social.verified-user.weekly"
-      install_daemon_unit \
-        "$AGENTS_REPO_DIR/social/deploy/launchd/com.hushline.social.linkedin.verified-user.weekly.daemon.plist" \
-        "$SYSTEM_TARGET_DIR/com.hushline.social.linkedin.verified-user.weekly.plist" \
-        "com.hushline.social.linkedin.verified-user.weekly"
+        "$AGENTS_REPO_DIR/social/deploy/launchd/com.hushline.social.hushline-verified-user-post-agent.daemon.plist" \
+        "$SYSTEM_TARGET_DIR/com.hushline.social.hushline-verified-user-post-agent.plist" \
+        "com.hushline.social.hushline-verified-user-post-agent"
       uninstall_gui_unit \
         "$GUI_TARGET_DIR/com.hushline.social.daily-planner.plist" \
         "com.hushline.social.daily-planner"
@@ -267,26 +262,17 @@ main() {
 
   cat <<EOF
 Installed launchd jobs ($SCOPE):
-- ${SCOPE/daemon/system}/com.hushline.social.daily-planner
-- ${SCOPE/daemon/system}/com.hushline.social.linkedin.daily
-- ${SCOPE/daemon/system}/com.hushline.social.weekly-article
-- ${SCOPE/daemon/system}/com.hushline.social.linkedin.weekly-article
-- ${SCOPE/daemon/system}/com.hushline.social.verified-user.weekly
-- ${SCOPE/daemon/system}/com.hushline.social.linkedin.verified-user.weekly
+- ${SCOPE/daemon/system}/com.hushline.social.whistleblower-news-post-agent
+- ${SCOPE/daemon/system}/com.hushline.social.hushline-feature-post-agent
+- ${SCOPE/daemon/system}/com.hushline.social.hushline-verified-user-post-agent
 
 Logs:
-- $AGENTS_REPO_DIR/logs/social/daily-planner.stdout.log
-- $AGENTS_REPO_DIR/logs/social/daily-planner.stderr.log
-- $AGENTS_REPO_DIR/logs/social/linkedin-daily.stdout.log
-- $AGENTS_REPO_DIR/logs/social/linkedin-daily.stderr.log
-- $AGENTS_REPO_DIR/logs/social/weekly-article.stdout.log
-- $AGENTS_REPO_DIR/logs/social/weekly-article.stderr.log
-- $AGENTS_REPO_DIR/logs/social/weekly-article-linkedin.stdout.log
-- $AGENTS_REPO_DIR/logs/social/weekly-article-linkedin.stderr.log
-- $AGENTS_REPO_DIR/logs/social/verified-user-weekly.stdout.log
-- $AGENTS_REPO_DIR/logs/social/verified-user-weekly.stderr.log
-- $AGENTS_REPO_DIR/logs/social/verified-user-weekly-linkedin.stdout.log
-- $AGENTS_REPO_DIR/logs/social/verified-user-weekly-linkedin.stderr.log
+- $AGENTS_REPO_DIR/logs/social/whistleblower-news-post-agent.stdout.log
+- $AGENTS_REPO_DIR/logs/social/whistleblower-news-post-agent.stderr.log
+- $AGENTS_REPO_DIR/logs/social/hushline-feature-post-agent.stdout.log
+- $AGENTS_REPO_DIR/logs/social/hushline-feature-post-agent.stderr.log
+- $AGENTS_REPO_DIR/logs/social/hushline-verified-user-post-agent.stdout.log
+- $AGENTS_REPO_DIR/logs/social/hushline-verified-user-post-agent.stderr.log
 - $AGENTS_REPO_DIR/logs/social/social-daily.log
 
 Next steps:
@@ -297,23 +283,17 @@ EOF
 
   if [[ "$SCOPE" == "gui" ]]; then
     cat <<EOF
-- test with: launchctl kickstart -k gui/$APP_UID/com.hushline.social.daily-planner
-- test with: launchctl kickstart -k gui/$APP_UID/com.hushline.social.linkedin.daily
-- test with: launchctl kickstart -k gui/$APP_UID/com.hushline.social.weekly-article
-- test with: launchctl kickstart -k gui/$APP_UID/com.hushline.social.linkedin.weekly-article
-- test with: launchctl kickstart -k gui/$APP_UID/com.hushline.social.verified-user.weekly
-- test with: launchctl kickstart -k gui/$APP_UID/com.hushline.social.linkedin.verified-user.weekly
+- test with: launchctl kickstart -k gui/$APP_UID/com.hushline.social.whistleblower-news-post-agent
+- test with: launchctl kickstart -k gui/$APP_UID/com.hushline.social.hushline-feature-post-agent
+- test with: launchctl kickstart -k gui/$APP_UID/com.hushline.social.hushline-verified-user-post-agent
 EOF
   else
     cat <<EOF
 - required daemon env vars: OPENAI_API_KEY, HUSHLINE_SOCIAL_GITHUB_TOKEN, HUSHLINE_SOCIAL_GIT_SIGNING_KEY_PUB, LINKEDIN_ACCESS_TOKEN, LINKEDIN_AUTHOR_URN
 - optional Codex defaults: CODEX_MODEL=gpt-5.5, CODEX_REASONING_EFFORT=high
-- test with: sudo launchctl kickstart -k system/com.hushline.social.daily-planner
-- test with: sudo launchctl kickstart -k system/com.hushline.social.linkedin.daily
-- test with: sudo launchctl kickstart -k system/com.hushline.social.weekly-article
-- test with: sudo launchctl kickstart -k system/com.hushline.social.linkedin.weekly-article
-- test with: sudo launchctl kickstart -k system/com.hushline.social.verified-user.weekly
-- test with: sudo launchctl kickstart -k system/com.hushline.social.linkedin.verified-user.weekly
+- test with: sudo launchctl kickstart -k system/com.hushline.social.whistleblower-news-post-agent
+- test with: sudo launchctl kickstart -k system/com.hushline.social.hushline-feature-post-agent
+- test with: sudo launchctl kickstart -k system/com.hushline.social.hushline-verified-user-post-agent
 EOF
   fi
 }

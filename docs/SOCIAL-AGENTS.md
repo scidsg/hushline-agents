@@ -25,15 +25,13 @@ Set `HUSHLINE_SOCIAL_REPO_DIR` when the social checkout is not a sibling of
 
 Default local-time launchd schedules:
 
-- `com.hushline.social.daily-planner`: 06:00, Monday through Friday
-- `com.hushline.social.linkedin.daily`: 06:10, Monday through Friday
-- `com.hushline.social.weekly-article`: 11:50 every Wednesday
-- `com.hushline.social.linkedin.weekly-article`: 12:00 every Wednesday
-- `com.hushline.social.verified-user.weekly`: 12:00 every Monday
-- `com.hushline.social.linkedin.verified-user.weekly`: 12:10 every Monday
+- `com.hushline.social.whistleblower-news-post-agent`: daily at 04:00, publishes at a random target between 04:00 and 09:00
+- `com.hushline.social.hushline-feature-post-agent`: daily at 04:00, publishes at a random target between 04:00 and 09:00
+- `com.hushline.social.hushline-verified-user-post-agent`: Monday through Friday at 04:00, selects one weekday per week, then publishes at a random target between 04:00 and 09:00
 
-Weekend dates are skipped by the daily planner and daily LinkedIn publisher.
-Verified-user jobs are scheduled for Monday, but manual runs accept explicit dates.
+The scheduled posting agents plan and publish through one launchd job per content type.
+Direct manual runs do not apply randomized timing or weekly weekday selection unless
+`HUSHLINE_SOCIAL_RANDOMIZE_POST_WINDOW=1` is set.
 
 ## Install
 
@@ -66,33 +64,21 @@ shell syntax are not supported in `.env.launchd`.
 
 ## Manual Runs
 
-Use the wrappers so env loading, locking, weekend guards, retries, and repo updates match
+Use the wrappers so env loading, locking, retries, and repo updates match
 scheduled runs:
 
 ```bash
-./social/scripts/run_daily_planner_launchd.sh
-./social/scripts/run_daily_linkedin_launchd.sh
-./social/scripts/run_weekly_article_launchd.sh
-./social/scripts/run_weekly_article_linkedin_launchd.sh
-./social/scripts/run_verified_user_weekly_launchd.sh
-./social/scripts/run_verified_user_weekly_linkedin_launchd.sh
+./social/scripts/run_whistleblower_news_post_agent_launchd.sh
+./social/scripts/run_hushline_feature_post_agent_launchd.sh
+./social/scripts/run_hushline_verified_user_post_agent_launchd.sh
 ```
 
 Date overrides:
 
 ```bash
-./social/scripts/run_daily_planner_launchd.sh --date YYYY-MM-DD
-./social/scripts/run_daily_linkedin_launchd.sh --date YYYY-MM-DD
-./social/scripts/run_weekly_article_launchd.sh --date YYYY-MM-DD
-./social/scripts/run_weekly_article_linkedin_launchd.sh --date YYYY-MM-DD
-./social/scripts/run_verified_user_weekly_launchd.sh --date YYYY-MM-DD
-./social/scripts/run_verified_user_weekly_linkedin_launchd.sh --date YYYY-MM-DD
-```
-
-Manual daily plan-and-publish flow:
-
-```bash
-./social/scripts/run_manual_daily_post_launchd.sh --date YYYY-MM-DD
+./social/scripts/run_whistleblower_news_post_agent_launchd.sh --date YYYY-MM-DD
+./social/scripts/run_hushline_feature_post_agent_launchd.sh --date YYYY-MM-DD
+./social/scripts/run_hushline_verified_user_post_agent_launchd.sh --date YYYY-MM-DD
 ```
 
 ## Logs

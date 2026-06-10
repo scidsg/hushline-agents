@@ -36,21 +36,6 @@ effective_date() {
   date +%Y-%m-%d
 }
 
-weekday_number() {
-  date -j -f "%Y-%m-%d" "$1" "+%u"
-}
-
-skip_unless_wednesday() {
-  local target_date=""
-  local weekday=""
-  target_date="$(effective_date "$@")"
-  weekday="$(weekday_number "$target_date")"
-  if [[ "$weekday" != "3" ]]; then
-    echo "Skipping weekly article planner for non-Wednesday date $target_date."
-    exit 0
-  fi
-}
-
 if ! mkdir -p "$REPO_DIR/.tmp"; then
   echo "Failed to create temp directory under $REPO_DIR/.tmp" >&2
   exit 1
@@ -65,9 +50,7 @@ trap cleanup EXIT
 load_launchd_env_file "$REPO_DIR"
 
 setup_log_capture
-echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] Starting weekly article planner wrapper."
-
-skip_unless_wednesday "$@"
+echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] Starting article planner wrapper."
 
 cd "$REPO_DIR"
 node scripts/plan-weekly-article-post.js "$@"

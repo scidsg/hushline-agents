@@ -19,25 +19,21 @@ printf '\033]0;Social Logs\007'
 mkdir -p "$HOME/hushline-agents/logs/social"
 touch \
   "$HOME/hushline-agents/logs/social/social-daily.log" \
-  "$HOME/hushline-agents/logs/social/daily-planner.stdout.log" \
-  "$HOME/hushline-agents/logs/social/daily-planner.stderr.log" \
-  "$HOME/hushline-agents/logs/social/linkedin-daily.stdout.log" \
-  "$HOME/hushline-agents/logs/social/linkedin-daily.stderr.log" \
-  "$HOME/hushline-agents/logs/social/verified-user-weekly.stdout.log" \
-  "$HOME/hushline-agents/logs/social/verified-user-weekly.stderr.log" \
-  "$HOME/hushline-agents/logs/social/verified-user-weekly-linkedin.stdout.log" \
-  "$HOME/hushline-agents/logs/social/verified-user-weekly-linkedin.stderr.log"
+  "$HOME/hushline-agents/logs/social/whistleblower-news-post-agent.stdout.log" \
+  "$HOME/hushline-agents/logs/social/whistleblower-news-post-agent.stderr.log" \
+  "$HOME/hushline-agents/logs/social/hushline-feature-post-agent.stdout.log" \
+  "$HOME/hushline-agents/logs/social/hushline-feature-post-agent.stderr.log" \
+  "$HOME/hushline-agents/logs/social/hushline-verified-user-post-agent.stdout.log" \
+  "$HOME/hushline-agents/logs/social/hushline-verified-user-post-agent.stderr.log"
 printf 'Watching social runner logs at %s\n\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')"
 tail -n 80 -F \
   "$HOME/hushline-agents/logs/social/social-daily.log" \
-  "$HOME/hushline-agents/logs/social/daily-planner.stdout.log" \
-  "$HOME/hushline-agents/logs/social/daily-planner.stderr.log" \
-  "$HOME/hushline-agents/logs/social/linkedin-daily.stdout.log" \
-  "$HOME/hushline-agents/logs/social/linkedin-daily.stderr.log" \
-  "$HOME/hushline-agents/logs/social/verified-user-weekly.stdout.log" \
-  "$HOME/hushline-agents/logs/social/verified-user-weekly.stderr.log" \
-  "$HOME/hushline-agents/logs/social/verified-user-weekly-linkedin.stdout.log" \
-  "$HOME/hushline-agents/logs/social/verified-user-weekly-linkedin.stderr.log"
+  "$HOME/hushline-agents/logs/social/whistleblower-news-post-agent.stdout.log" \
+  "$HOME/hushline-agents/logs/social/whistleblower-news-post-agent.stderr.log" \
+  "$HOME/hushline-agents/logs/social/hushline-feature-post-agent.stdout.log" \
+  "$HOME/hushline-agents/logs/social/hushline-feature-post-agent.stderr.log" \
+  "$HOME/hushline-agents/logs/social/hushline-verified-user-post-agent.stdout.log" \
+  "$HOME/hushline-agents/logs/social/hushline-verified-user-post-agent.stderr.log"
 CMD
 )
 
