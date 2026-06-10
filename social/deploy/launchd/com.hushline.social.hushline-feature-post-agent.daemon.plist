@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.hushline.social.linkedin.weekly-article</string>
+  <string>com.hushline.social.hushline-feature-post-agent</string>
 
   <key>ProgramArguments</key>
   <array>
-    <string>__REPO_DIR__/social/scripts/run_weekly_article_linkedin_launchd.sh</string>
+    <string>__REPO_DIR__/social/scripts/run_hushline_feature_post_agent_launchd.sh</string>
   </array>
 
   <key>WorkingDirectory</key>
@@ -23,6 +23,8 @@
   <dict>
     <key>HOME</key>
     <string>__HOME_DIR__</string>
+    <key>CODEX_HOME</key>
+    <string>__HOME_DIR__/.codex-hushline-agents</string>
     <key>HUSHLINE_SOCIAL_ENV_FILE</key>
     <string>__ENV_FILE__</string>
     <key>HUSHLINE_SOCIAL_REPO_DIR</key>
@@ -43,18 +45,16 @@
 
   <key>StartCalendarInterval</key>
   <dict>
-    <key>Weekday</key>
-    <integer>3</integer>
     <key>Hour</key>
-    <integer>12</integer>
+    <integer>4</integer>
     <key>Minute</key>
     <integer>0</integer>
   </dict>
 
   <key>StandardOutPath</key>
-  <string>__REPO_DIR__/logs/social/weekly-article-linkedin.stdout.log</string>
+  <string>__REPO_DIR__/logs/social/hushline-feature-post-agent.stdout.log</string>
 
   <key>StandardErrorPath</key>
-  <string>__REPO_DIR__/logs/social/weekly-article-linkedin.stderr.log</string>
+  <string>__REPO_DIR__/logs/social/hushline-feature-post-agent.stderr.log</string>
 </dict>
 </plist>

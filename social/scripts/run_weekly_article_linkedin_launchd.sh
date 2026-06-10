@@ -52,21 +52,6 @@ effective_archive_key() {
   effective_date "$@"
 }
 
-weekday_number() {
-  date -j -f "%Y-%m-%d" "$1" "+%u"
-}
-
-skip_unless_wednesday() {
-  local target_date=""
-  local weekday=""
-  target_date="$(effective_date "$@")"
-  weekday="$(weekday_number "$target_date")"
-  if [[ "$weekday" != "3" ]]; then
-    echo "Skipping weekly article LinkedIn publisher for non-Wednesday date $target_date."
-    exit 0
-  fi
-}
-
 wait_for_article_archive() {
   local archive_key=""
   local archive_post_path=""
@@ -96,6 +81,34 @@ wait_for_article_archive() {
   done
 }
 
+article_publish_random_delay_seconds() {
+  local value="${HUSHLINE_SOCIAL_ARTICLE_PUBLISH_RANDOM_DELAY_SECONDS:-18000}"
+  if [[ ! "$value" =~ ^[0-9]+$ ]] || (( value < 0 )); then
+    echo "HUSHLINE_SOCIAL_ARTICLE_PUBLISH_RANDOM_DELAY_SECONDS must be a non-negative integer." >&2
+    return 1
+  fi
+
+  printf '%s\n' "$value"
+}
+
+sleep_until_random_article_publish_time() {
+  local delay_seconds=""
+  local max_delay_seconds=""
+
+  if [[ -z "${HUSHLINE_SOCIAL_LAUNCHD_SCOPE:-}" && -z "${HUSHLINE_SOCIAL_ARTICLE_PUBLISH_RANDOM_DELAY_SECONDS+x}" ]]; then
+    return 0
+  fi
+
+  max_delay_seconds="$(article_publish_random_delay_seconds)"
+  if (( max_delay_seconds == 0 )); then
+    return 0
+  fi
+
+  delay_seconds=$((RANDOM % (max_delay_seconds + 1)))
+  echo "Waiting $delay_seconds seconds before publishing article post."
+  sleep "$delay_seconds"
+}
+
 run_weekly_article_linkedin_publisher() {
   cd "$REPO_DIR"
   "$AGENTS_REPO_DIR/social/scripts/agent_daily_linkedin_publisher.sh" --date-root previous-article-posts "$@"
@@ -115,12 +128,12 @@ trap cleanup EXIT
 load_launchd_env_file "$REPO_DIR"
 
 setup_log_capture
-echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] Starting weekly article LinkedIn publisher wrapper."
+echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] Starting article LinkedIn publisher wrapper."
 
-skip_unless_wednesday "$@"
+sleep_until_random_article_publish_time
 wait_for_article_archive "$@"
 
 run_with_transient_retry \
-  "Weekly article LinkedIn publisher" \
+  "Article LinkedIn publisher" \
   run_weekly_article_linkedin_publisher \
   "$@"

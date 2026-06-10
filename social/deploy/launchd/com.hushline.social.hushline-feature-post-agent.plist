@@ -3,21 +3,15 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.hushline.social.verified-user.weekly</string>
+  <string>com.hushline.social.hushline-feature-post-agent</string>
 
   <key>ProgramArguments</key>
   <array>
-    <string>__REPO_DIR__/social/scripts/run_verified_user_weekly_launchd.sh</string>
+    <string>__REPO_DIR__/social/scripts/run_hushline_feature_post_agent_launchd.sh</string>
   </array>
 
   <key>WorkingDirectory</key>
   <string>__REPO_DIR__</string>
-
-  <key>UserName</key>
-  <string>__USER_NAME__</string>
-
-  <key>GroupName</key>
-  <string>__GROUP_NAME__</string>
 
   <key>EnvironmentVariables</key>
   <dict>
@@ -32,31 +26,26 @@
     <key>HUSHLINE_SOCIAL_COMBINED_LOG_FILE</key>
     <string>__REPO_DIR__/logs/social/social-daily.log</string>
     <key>HUSHLINE_SOCIAL_LAUNCHD_SCOPE</key>
-    <string>daemon</string>
+    <string>gui</string>
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
   </dict>
-
-  <key>ProcessType</key>
-  <string>Background</string>
 
   <key>RunAtLoad</key>
   <false/>
 
   <key>StartCalendarInterval</key>
   <dict>
-    <key>Weekday</key>
-    <integer>1</integer>
     <key>Hour</key>
-    <integer>12</integer>
+    <integer>4</integer>
     <key>Minute</key>
     <integer>0</integer>
   </dict>
 
   <key>StandardOutPath</key>
-  <string>__REPO_DIR__/logs/social/verified-user-weekly.stdout.log</string>
+  <string>__REPO_DIR__/logs/social/hushline-feature-post-agent.stdout.log</string>
 
   <key>StandardErrorPath</key>
-  <string>__REPO_DIR__/logs/social/verified-user-weekly.stderr.log</string>
+  <string>__REPO_DIR__/logs/social/hushline-feature-post-agent.stderr.log</string>
 </dict>
 </plist>
