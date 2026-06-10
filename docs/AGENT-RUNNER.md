@@ -337,13 +337,18 @@ Open the local runner monitoring layout:
 bash "$HOME/hushline-agents/scripts/open_runner_dashboard.sh"
 ```
 
-The launcher opens five Terminal windows:
+The launcher opens six Terminal windows:
 
 - left/top: code-agent logs
-- left/middle: social-agent logs
+- left/upper-middle: social live combined log (`logs/social/social-daily.log`)
+- left/lower-middle: social LaunchAgent stdout/stderr logs
 - left/bottom: weekly-agent-report logs
 - right/top: Codex in `hushline-agents`
 - right/bottom: an interactive shell in `hushline`
+
+Use the `Social Live Log` window when manually running social commands; wrappers append
+their live progress to the combined social log even when the LaunchAgent-specific stdout
+file is not being written by launchd.
 
 To restore this after reboot, add the launcher command to a macOS login item or a user
 LaunchAgent that runs after graphical login.

@@ -75,6 +75,17 @@ def test_runner_dashboard_tails_social_logs_from_agents_repo() -> None:
     assert "$HOME/hushline-social/logs/" not in script
 
 
+def test_runner_dashboard_uses_one_social_log_window() -> None:
+    script = (REPO_ROOT / "scripts" / "open_runner_dashboard.sh").read_text(encoding="utf-8")
+
+    assert script.count('openRunnerWindow("Social Logs"') == 1
+    assert "Social Live Log" not in script
+    assert "Social Launchd Logs" not in script
+    assert "SOCIAL_LAUNCHD_CMD" not in script
+    assert "set oneThird to" in script
+    assert "set twoThirds to" in script
+
+
 def test_social_plist_validator_rejects_unknown_tags(tmp_path: Path) -> None:
     plist_path = tmp_path / "invalid.plist"
     plist_path.write_text(
