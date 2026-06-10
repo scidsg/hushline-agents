@@ -18,7 +18,7 @@ remain in their owning repositories.
 - `scripts/sanitize_agent_run_log.py`: removes sensitive local metadata and common
   credential patterns from persisted logs.
 - `scripts/weekly_hushline_code_agent_report_runner.py`: builds the weekly shared-agent
-  brief from local runner logs.
+  brief from local runner logs, Codex status snapshots, and token telemetry.
 - `social/scripts/`: launchd wrappers and agent entrypoints for the Hush Line social
   planner and publishers.
 - `social/deploy/launchd/`: LaunchAgent and LaunchDaemon templates for social jobs.

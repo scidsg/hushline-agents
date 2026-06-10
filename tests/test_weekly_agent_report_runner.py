@@ -47,6 +47,8 @@ def test_default_sources_match_monitored_logs() -> None:
 
     assert Path.home() / ".codex/logs/hushline-code-agent.log" in paths
     assert Path.home() / "tor-code-agent/logs/tor-agent.err.log" in paths
+    assert Path.home() / ".codex-hushline-agents/log/codex-tui.log" in paths
+    assert Path.home() / ".codex-hushline-agents/sessions" in paths
     assert ROOT / "logs/social/social-daily.log" in paths
     assert ROOT / "logs/weekly-agent-report.stdout.log" in paths
     assert ROOT / "logs/weekly-agent-report.stderr.log" in paths
@@ -95,6 +97,107 @@ def test_parse_log_timestamp_uses_timezone_abbreviation_during_fallback() -> Non
     assert pst_message == "after fallback"
     assert pdt_timestamp == datetime(2026, 11, 1, 8, 30, tzinfo=UTC)
     assert pst_timestamp == datetime(2026, 11, 1, 9, 30, tzinfo=UTC)
+
+
+def test_parse_log_timestamp_accepts_codex_iso_telemetry_lines() -> None:
+    runner = load_runner()
+
+    timestamp, message = runner.parse_log_timestamp(
+        "2026-06-10T07:12:38.123456Z codex.turn.token_usage.total_tokens=123"
+    )
+
+    assert timestamp == datetime(2026, 6, 10, 7, 12, 38, 123456, tzinfo=UTC)
+    assert message == "codex.turn.token_usage.total_tokens=123"
+
+
+def test_collect_usage_snapshots_from_status_and_token_logs(tmp_path: Path) -> None:
+    runner = load_runner()
+    status_log = tmp_path / "hushline-code-agent.log"
+    telemetry_log = tmp_path / "codex-tui.log"
+    sessions_dir = tmp_path / "sessions"
+    session_day = sessions_dir / "2026" / "06" / "10"
+    session_day.mkdir(parents=True)
+    session_log = session_day / "rollout.jsonl"
+    status_log.write_text(
+        "\n".join(
+            [
+                "[2026-06-09 23:12:07 PDT] Hourly idle Codex /status check due.",
+                "Codex model: Codex 5.5 high",
+                "Codex account: agents@hushline.app",
+                (
+                    "Codex /status: primary 300m window 60% used; 40% remaining; "
+                    "resets at 2026-06-10 03:00:08 PDT."
+                ),
+            ],
+        ),
+        encoding="utf-8",
+    )
+    telemetry_log.write_text(
+        (
+            "2026-06-10T07:12:38.123456Z "
+            "codex.turn.token_usage.input_tokens=10000 "
+            "codex.turn.token_usage.cached_input_tokens=4000 "
+            "codex.turn.token_usage.output_tokens=2000 "
+            "codex.turn.token_usage.reasoning_output_tokens=345 "
+            "codex.turn.token_usage.total_tokens=12000"
+        ),
+        encoding="utf-8",
+    )
+    session_log.write_text(
+        (
+            '{"timestamp":"2026-06-10T07:13:38.123Z","type":"event_msg",'
+            '"payload":{"type":"token_count","info":{"total_token_usage":'
+            '{"input_tokens":30000,"cached_input_tokens":14000,"output_tokens":4000,'
+            '"reasoning_output_tokens":500,"total_tokens":34000},"last_token_usage":'
+            '{"input_tokens":5000,"cached_input_tokens":2000,"output_tokens":800,'
+            '"reasoning_output_tokens":100,"total_tokens":5800}},'
+            '"rate_limits":{"primary":{"used_percent":22.0,"window_minutes":300,'
+            '"resets_at":1780443446}}}}'
+        ),
+        encoding="utf-8",
+    )
+
+    snapshots = runner.collect_usage_snapshots(
+        [
+            runner.LogSource("Hush Line issue runner", status_log),
+            runner.LogSource("Shared Codex telemetry", telemetry_log),
+            runner.LogSource("Shared Codex sessions", sessions_dir),
+        ],
+        datetime(2026, 6, 10, 0, 0, tzinfo=UTC),
+    )
+
+    assert [snapshot.kind for snapshot in snapshots] == ["status", "tokens", "tokens", "status"]
+    status = next(
+        snapshot
+        for snapshot in snapshots
+        if snapshot.kind == "status" and snapshot.agent == "Code Agent"
+    )
+    session_status = next(
+        snapshot
+        for snapshot in snapshots
+        if snapshot.kind == "status" and snapshot.agent == "Shared Codex Workspace"
+    )
+    tokens = next(
+        snapshot
+        for snapshot in snapshots
+        if snapshot.kind == "tokens" and snapshot.source == "Shared Codex telemetry"
+    )
+    session_tokens = next(
+        snapshot
+        for snapshot in snapshots
+        if snapshot.kind == "tokens" and snapshot.source == "Shared Codex sessions"
+    )
+    assert status.agent == "Code Agent"
+    assert status.used_percent == 60
+    assert status.remaining_percent == 40
+    assert status.model == "Codex 5.5 high"
+    assert status.account == "agents@hushline.app"
+    assert tokens.agent == "Shared Codex Workspace"
+    assert tokens.total_tokens == 12000
+    assert tokens.reasoning_output_tokens == 345
+    assert session_status.used_percent == 22
+    assert session_tokens.total_tokens == 5800
+    assert session_tokens.input_tokens == 5000
 
 
 def test_collect_events_from_social_runner_log(tmp_path: Path) -> None:
@@ -175,13 +278,48 @@ def test_render_report_writes_narrative_team_briefs_and_appendix(tmp_path: Path)
             detail="Sent Hush Line Weekly Agent Brief from weekly-report@example.com",
         ),
     ]
+    usage_snapshots = [
+        runner.UsageSnapshot(
+            timestamp=datetime(2026, 5, 16, 12, 30, tzinfo=UTC),
+            source="Hush Line issue runner",
+            agent="Code Agent",
+            kind="status",
+            window_minutes=300,
+            used_percent=60,
+            remaining_percent=40,
+            resets_at="2026-05-16 17:00:00 PDT",
+            model="Codex 5.5 high",
+            account="agents@hushline.app",
+        ),
+        runner.UsageSnapshot(
+            timestamp=datetime(2026, 5, 16, 12, 35, tzinfo=UTC),
+            source="Shared Codex telemetry",
+            agent="Shared Codex Workspace",
+            kind="tokens",
+            input_tokens=10000,
+            cached_input_tokens=4000,
+            output_tokens=2000,
+            reasoning_output_tokens=345,
+            total_tokens=12000,
+        ),
+    ]
 
-    report = runner.render_report(events, [], [source], since, until)
+    report = runner.render_report(
+        events,
+        [],
+        [source],
+        runner.ReportWindow(since, until),
+        usage_snapshots,
+    )
 
     assert "Hush Line Weekly Agent Brief" in report
     assert "From: weekly-report@example.com" in report
     assert "To: maintainer@example.com" in report
     assert "Workspace: shared Hush Line agents" in report
+    assert report.index("Usage Highlights:") < report.index("This Week in Brief:")
+    assert "Code Agent               60% used / 40% left" in report
+    assert "Shared Codex Workspace" in report
+    assert "100% share; 12,000 tokens" in report
     assert report.index("This Week in Brief:") < report.index("Team Briefs:")
     this_week = report.split("This Week in Brief:", 1)[1].split("Team Briefs:", 1)[0]
     assert "\n-" not in this_week
@@ -197,6 +335,10 @@ def test_render_report_writes_narrative_team_briefs_and_appendix(tmp_path: Path)
     assert "Social: May 15, 2026" in report
     assert "Operational Appendix:" in report
     assert "Completed work events: 4" in report
+    assert "Usage snapshots: 2" in report
+    assert "Usage Detail:" in report
+    assert "Code Agent: 60% used / 40% left (300m window)" in report
+    assert "Shared Codex Workspace: 12,000 total" in report
     assert (
         "[Hush Line issue runner] Opened PR: https://github.com/scidsg/hushline/pull/2001"
     ) in report
