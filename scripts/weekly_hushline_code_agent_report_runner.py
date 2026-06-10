@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-REPORT_TITLE = "Weekly Agent Report"
+REPORT_TITLE = "Hush Line Weekly Agent Brief"
 REPORT_FROM_ENV = "HUSHLINE_WEEKLY_AGENT_REPORT_FROM"
 REPORT_TO_ENV = "HUSHLINE_WEEKLY_AGENT_REPORT_TO"
 DEFAULT_LOOKBACK_DAYS = 7
@@ -30,6 +30,20 @@ LOG_TIMEZONES = {
 MIN_PRINTABLE_CODEPOINT = 32
 MAX_COMPLETED_EVENTS = 40
 MAX_ATTENTION_EVENTS = 30
+MAX_TEAM_DETAIL_EVENTS = 6
+MAX_FOLLOW_UP_EVENTS = 8
+TEAM_ORDER = ("Engineering", "Social", "Administrative", "Finance")
+FINANCE_KEYWORDS = (
+    "finance",
+    "billing",
+    "invoice",
+    "premium",
+    "stripe",
+    "subscription",
+    "donation",
+    "donor",
+    "revenue",
+)
 MAIL_APP_APPLESCRIPT_TIMEOUT_SECONDS = 300
 MAIL_APP_OSASCRIPT_TIMEOUT_SECONDS = MAIL_APP_APPLESCRIPT_TIMEOUT_SECONDS + 30
 MAIL_APP_APPLE_EVENT_TIMEOUT_CODE = "-1712"
@@ -183,6 +197,8 @@ def default_log_sources() -> list[LogSource]:
         ),
         LogSource("Tor code agent", Path.home() / "tor-code-agent/logs/tor-agent.err.log"),
         LogSource("Hush Line social runner", root / "logs/social/social-daily.log"),
+        LogSource("Weekly report runner", root / "logs/weekly-agent-report.stdout.log"),
+        LogSource("Weekly report runner errors", root / "logs/weekly-agent-report.stderr.log"),
     ]
 
 
@@ -221,11 +237,16 @@ def read_source_lines(source: LogSource) -> list[tuple[datetime | None, str]]:
         return []
     events: list[tuple[datetime | None, str]] = []
     current_timestamp: datetime | None = None
+    fallback_timestamp = (
+        datetime.fromtimestamp(source.path.stat().st_mtime, UTC)
+        if source.name.startswith("Weekly report runner")
+        else None
+    )
     for line in source.path.read_text(encoding="utf-8", errors="replace").splitlines():
         timestamp, message = parse_log_timestamp(line)
         if timestamp is not None:
             current_timestamp = timestamp
-        events.append((current_timestamp, normalize_text(message)))
+        events.append((current_timestamp or fallback_timestamp, normalize_text(message)))
     return events
 
 
@@ -256,6 +277,10 @@ def classify_line(source: str, timestamp: datetime, line: str) -> AgentEvent | N
 
     if "Published LinkedIn post" in line:
         return AgentEvent(timestamp, source, "completed", "Published LinkedIn post", line)
+    if line.startswith(("Sent Weekly Agent Report ", "Sent Hush Line Weekly Agent Brief ")):
+        return AgentEvent(timestamp, source, "completed", "Sent weekly brief", line)
+    if line.startswith("Persisted report:"):
+        return AgentEvent(timestamp, source, "completed", "Persisted weekly brief", line)
     if line.startswith("Validated daily plan for "):
         return AgentEvent(timestamp, source, "completed", "Validated social plan", line)
     if line.startswith("Prepared daily planning context for "):
@@ -400,77 +425,400 @@ def linkedin_post_labels(events: list[AgentEvent]) -> list[str]:
     return labels
 
 
-def render_executive_summary(
-    completed: list[AgentEvent],
-    work: list[AgentEvent],
-    skipped: list[AgentEvent],
-    attention: list[AgentEvent],
-    warnings: list[str],
+def local_date_label(timestamp: datetime) -> str:
+    return timestamp.astimezone(LOCAL_TZ).strftime("%b %-d, %Y at %-I:%M %p PT")
+
+
+def event_team(event: AgentEvent) -> str:
+    text = f"{event.source} {event.summary} {event.detail}".lower()
+    if any(keyword in text for keyword in FINANCE_KEYWORDS):
+        return "Finance"
+    if "social" in text or "linkedin" in text:
+        return "Social"
+    if "weekly report" in text or "weekly brief" in text or "administrative" in text:
+        return "Administrative"
+    if (
+        "issue runner" in text
+        or "tor code agent" in text
+        or " pull request" in text
+        or " pr" in text
+        or "commit" in text
+    ):
+        return "Engineering"
+    return "Administrative"
+
+
+def warning_team(warning: str) -> str:
+    text = warning.lower()
+    if any(keyword in text for keyword in FINANCE_KEYWORDS):
+        return "Finance"
+    if "social" in text or "linkedin" in text:
+        return "Social"
+    if "weekly report" in text or "report" in text:
+        return "Administrative"
+    if "tor" in text or "issue runner" in text or "code agent" in text:
+        return "Engineering"
+    return "Administrative"
+
+
+def grouped_by_team(events: list[AgentEvent]) -> dict[str, list[AgentEvent]]:
+    grouped: dict[str, list[AgentEvent]] = {team: [] for team in TEAM_ORDER}
+    for event in events:
+        grouped.setdefault(event_team(event), []).append(event)
+    return grouped
+
+
+def grouped_warnings_by_team(warnings: list[str]) -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = {team: [] for team in TEAM_ORDER}
+    for warning in warnings:
+        grouped.setdefault(warning_team(warning), []).append(warning)
+    return grouped
+
+
+def events_in_category(events: list[AgentEvent], category: str) -> list[AgentEvent]:
+    return [event for event in events if event.category == category]
+
+
+def unique_events(events: list[AgentEvent]) -> list[AgentEvent]:
+    unique = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for event in events:
+        key = (event.source, event.category, event.summary, event.detail)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(event)
+    return unique
+
+
+def narrative_events(events: list[AgentEvent], category: str) -> list[AgentEvent]:
+    return unique_events(events_in_category(events, category))
+
+
+def detail_sort_key(event: AgentEvent) -> tuple[int, float]:
+    summary_priority = {
+        "Opened PR": 0,
+        "Updated PR": 0,
+        "Referenced pull request": 1,
+        "Published LinkedIn post": 0,
+        "Sent weekly brief": 0,
+        "Persisted weekly brief": 1,
+        "Validated social plan": 2,
+        "Created commit": 3,
+    }
+    category_priority = {
+        "attention": 0,
+        "completed": 1,
+    }
+    return (
+        category_priority.get(event.category, 9) * 10 + summary_priority.get(event.summary, 5),
+        -event.timestamp.timestamp(),
+    )
+
+
+def event_detail_line(event: AgentEvent) -> str:
+    detail = f": {event.detail.rstrip('.')}" if event.detail else ""
+    return f"{local_date_label(event.timestamp)} - {event.summary.rstrip('.')}{detail}"
+
+
+def pr_labels(events: list[AgentEvent]) -> list[str]:
+    labels = []
+    for event in events:
+        if event.summary not in {"Opened PR", "Updated PR", "Referenced pull request"}:
+            continue
+        match = re.search(r"/pull/(\d+)", event.detail)
+        labels.append(f"#{match.group(1)}" if match else event.detail)
+    return unique_in_order(labels)
+
+
+def issue_labels(events: list[AgentEvent]) -> list[str]:
+    labels = []
+    for event in events:
+        match = re.search(r"#(\d+)", f"{event.summary} {event.detail}")
+        if match:
+            labels.append(f"#{match.group(1)}")
+    return unique_in_order(labels)
+
+
+def validated_social_dates(events: list[AgentEvent]) -> list[str]:
+    labels = []
+    for event in events:
+        if event.summary != "Validated social plan":
+            continue
+        match = re.search(r"Validated daily plan for ([0-9-]+)", event.detail)
+        labels.append(match.group(1) if match else event.detail)
+    return unique_in_order(labels)
+
+
+def archived_social_dates(events: list[AgentEvent]) -> list[str]:
+    labels = []
+    for event in events:
+        if event.summary != "Created commit":
+            continue
+        match = re.search(r"Archive social post for ([0-9-]+)", event.detail)
+        if match:
+            labels.append(match.group(1))
+    return unique_in_order(labels)
+
+
+def report_delivery_count(events: list[AgentEvent]) -> int:
+    return sum(1 for event in events if event.summary == "Sent weekly brief")
+
+
+def report_artifact_count(events: list[AgentEvent]) -> int:
+    return sum(1 for event in events if event.summary == "Persisted weekly brief")
+
+
+def render_this_week(
+    team_events: dict[str, list[AgentEvent]],
+    team_warnings: dict[str, list[str]],
 ) -> list[str]:
-    total_events = len(completed) + len(work) + len(skipped) + len(attention)
-    if total_events == 0 and not warnings:
-        return ["No local runner activity or log warnings were detected in this reporting window."]
+    engineering = team_events["Engineering"]
+    social = team_events["Social"]
+    administrative = team_events["Administrative"]
+    finance = team_events["Finance"]
+    raw_attention = [
+        event
+        for events in team_events.values()
+        for event in events
+        if event.category == "attention"
+    ]
+    attention = unique_events(raw_attention)
+    warning_count = sum(len(warnings) for warnings in team_warnings.values())
+    engineering_prs = pr_labels(engineering)
+    social_posts = linkedin_post_labels(social)
+    administrative_completed = narrative_events(administrative, "completed")
+    admin_reports = report_delivery_count(administrative_completed)
+
+    if not any(team_events.values()) and warning_count == 0:
+        return [
+            "No runner activity or log warnings were captured in this reporting window.",
+            (
+                "Finance remains visible as an in-flight function, but no dedicated finance "
+                "runner output is part of the monitored log set yet."
+            ),
+        ]
 
     paragraphs = [
         (
-            "The monitored local runners recorded "
-            f"{pluralize(total_events, 'notable event')}: "
-            f"{pluralize(len(completed), 'completed work item')}, "
-            f"{pluralize(len(work), 'work/check item')}, "
-            f"{pluralize(len(skipped), 'no-op item')}, and "
-            f"{pluralize(len(attention), 'attention item')}."
+            "This brief is assembled from the shared agents workspace and covers automated "
+            "Engineering, Social, Administrative, and in-flight Finance activity. The intent is "
+            "to summarize what changed, what needs attention, and where operators may need to "
+            "look deeper."
         ),
     ]
 
-    if completed:
-        latest_completed = completed[0]
-        completed_parts = []
-        linkedin_labels = linkedin_post_labels(completed)
-        if linkedin_labels:
-            completed_parts.append(
-                "the social runner published LinkedIn posts for "
-                f"{human_join(unique_in_order(linkedin_labels), overflow_label='more posts')}"
-            )
-        prs = pr_descriptions(completed)
-        if prs:
-            completed_parts.append(f"PR activity included {human_join(prs, limit=3)}")
-        else:
-            completed_parts.append("no pull requests were opened or updated")
-        completed_parts.append(
-            f"the most recent completed item was {event_description(latest_completed)}"
+    movement = []
+    if engineering_prs:
+        movement.append(
+            f"Engineering moved {pluralize(len(engineering_prs), 'pull request')} "
+            f"({human_join(engineering_prs, limit=5)})"
         )
-        paragraphs.append(sentence("Completed work: " + "; ".join(completed_parts)))
-    else:
-        paragraphs.append("No completed runner work was detected in this window.")
-
-    if attention:
-        attention_items = unique_in_order([event_description(event) for event in attention])
-        paragraphs.append(
-            sentence(
-                "Review is needed for "
-                f"{human_join(attention_items, limit=3, overflow_label='more items')}"
-            )
+    if social_posts:
+        movement.append(
+            f"Social published {pluralize(len(social_posts), 'LinkedIn post')} "
+            f"for {human_join(unique_in_order(social_posts), limit=5, overflow_label='more posts')}"
         )
-    else:
-        paragraphs.append("No attention items were detected.")
+    if admin_reports:
+        movement.append(
+            f"Administrative automation sent {pluralize(admin_reports, 'weekly brief')}"
+        )
+    if not movement:
+        movement.append("the runners mostly performed monitoring and queue checks")
+    paragraphs.append(sentence("The week in motion: " + "; ".join(movement)))
 
-    if warnings:
-        paragraphs.append(
-            sentence(
-                f"There {'was' if len(warnings) == 1 else 'were'} "
-                f"{pluralize(len(warnings), 'log source warning')} to check below"
+    if attention or warning_count:
+        attention_summary = []
+        if attention:
+            attention_summary.append(f"{pluralize(len(attention), 'distinct follow-up item')}")
+        if warning_count:
+            attention_summary.append(f"{pluralize(warning_count, 'log warning')}")
+        risk_sentence = "The main risk signal: " + " and ".join(attention_summary)
+        if len(raw_attention) > len(attention):
+            risk_sentence += (
+                f" ({pluralize(len(raw_attention), 'raw alert')} in the appendix after repeats)"
             )
+        paragraphs.append(sentence(risk_sentence))
+    else:
+        paragraphs.append("No urgent attention items were detected in the monitored logs.")
+
+    if not finance:
+        paragraphs.append(
+            "Finance remains an in-flight team area: this report does not yet receive a dedicated "
+            "finance runner feed, so finance activity should be treated as a coverage gap rather "
+            "than confirmed inactivity."
         )
     return paragraphs
 
 
-def render_report(
+def render_engineering_brief(events: list[AgentEvent], warnings: list[str]) -> list[str]:
+    completed = narrative_events(events, "completed")
+    attention = narrative_events(events, "attention")
+    prs = pr_labels(completed)
+    issues = issue_labels(completed)
+    commit_count = sum(1 for event in completed if event.summary == "Created commit")
+    lines = ["Engineering Team:"]
+    if prs or issues or commit_count:
+        parts = []
+        if prs:
+            parts.append(f"opened or updated {pluralize(len(prs), 'PR')} ({human_join(prs)})")
+        if issues:
+            parts.append(f"advanced issue work for {human_join(issues)}")
+        if commit_count:
+            parts.append(f"recorded {pluralize(commit_count, 'commit')}")
+        lines.append(sentence("Engineering " + "; ".join(parts)))
+    else:
+        lines.append("Engineering automation monitored queues, but no shipped PRs were captured.")
+    if attention or warnings:
+        lines.append(
+            sentence(
+                "Follow-up is needed on "
+                f"{pluralize(len(attention) + len(warnings), 'engineering signal')}"
+            )
+        )
+    else:
+        lines.append("No engineering follow-up items were detected.")
+    return lines
+
+
+def render_social_brief(events: list[AgentEvent], warnings: list[str]) -> list[str]:
+    completed = narrative_events(events, "completed")
+    attention = narrative_events(events, "attention")
+    posts = unique_in_order(linkedin_post_labels(completed))
+    plan_dates = validated_social_dates(completed)
+    archive_dates = archived_social_dates(completed)
+    lines = ["Social Team:"]
+    if posts:
+        lines.append(
+            sentence(
+                f"Social published {pluralize(len(posts), 'LinkedIn post')} for "
+                f"{human_join(posts, limit=6, overflow_label='more posts')}"
+            )
+        )
+    else:
+        lines.append("Social automation ran, but no published posts were captured.")
+    if plan_dates or archive_dates:
+        quality_parts = []
+        if plan_dates:
+            quality_parts.append(f"validated {pluralize(len(plan_dates), 'daily plan')}")
+        if archive_dates:
+            quality_parts.append(f"archived {pluralize(len(archive_dates), 'post')}")
+        lines.append(sentence("Workflow health: " + " and ".join(quality_parts)))
+    if attention or warnings:
+        lines.append(
+            sentence(
+                "Editorial QA needs review for "
+                f"{pluralize(len(attention) + len(warnings), 'social signal')}"
+            )
+        )
+    else:
+        lines.append("No social follow-up items were detected.")
+    return lines
+
+
+def render_administrative_brief(events: list[AgentEvent], warnings: list[str]) -> list[str]:
+    completed = narrative_events(events, "completed")
+    sent_count = report_delivery_count(completed)
+    artifact_count = report_artifact_count(completed)
+    lines = ["Administrative Team:"]
+    if sent_count or artifact_count:
+        parts = []
+        if sent_count:
+            parts.append(f"sent {pluralize(sent_count, 'weekly brief')}")
+        if artifact_count:
+            parts.append(f"persisted {pluralize(artifact_count, 'report artifact')}")
+        lines.append(sentence("Administrative reporting " + " and ".join(parts)))
+    else:
+        lines.append(
+            "Administrative automation is monitored, with no report-delivery event in scope."
+        )
+    if warnings:
+        lines.append(
+            sentence(f"Administrative follow-up: {pluralize(len(warnings), 'log warning')}")
+        )
+    else:
+        lines.append("No administrative warnings were detected.")
+    return lines
+
+
+def render_finance_brief(events: list[AgentEvent], warnings: list[str]) -> list[str]:
+    completed = narrative_events(events, "completed")
+    attention = narrative_events(events, "attention")
+    lines = ["Finance Team:"]
+    if completed or attention or warnings:
+        lines.append(
+            sentence(
+                f"Finance has {pluralize(len(completed), 'completed signal')}, "
+                f"{pluralize(len(attention), 'attention signal')}, and "
+                f"{pluralize(len(warnings), 'log warning')}"
+            )
+        )
+    else:
+        lines.append(
+            "Finance is in-flight: no dedicated finance runner output was captured in the "
+            "monitored logs."
+        )
+    lines.append(
+        "Recommended next step: add finance runner logs when billing, donation, subscription, "
+        "or reporting automation becomes active."
+    )
+    return lines
+
+
+def render_team_briefs(
+    team_events: dict[str, list[AgentEvent]],
+    team_warnings: dict[str, list[str]],
+) -> list[str]:
+    renderers = {
+        "Engineering": render_engineering_brief,
+        "Social": render_social_brief,
+        "Administrative": render_administrative_brief,
+        "Finance": render_finance_brief,
+    }
+    lines = ["Team Briefs:"]
+    for team in TEAM_ORDER:
+        lines.append("")
+        lines.extend(renderers[team](team_events[team], team_warnings[team]))
+        detail_events = sorted(
+            unique_events(
+                [
+                    event
+                    for event in team_events[team]
+                    if event.category in {"completed", "attention"}
+                ],
+            ),
+            key=detail_sort_key,
+        )[:MAX_TEAM_DETAIL_EVENTS]
+        if detail_events:
+            lines.append("Selected details:")
+            lines.extend(f"- {event_detail_line(event)}" for event in detail_events)
+    return lines
+
+
+def render_follow_ups(
+    team_events: dict[str, list[AgentEvent]],
+    team_warnings: dict[str, list[str]],
+) -> list[str]:
+    lines = ["Decisions and Follow-ups:"]
+    follow_up_count = 0
+    for team in TEAM_ORDER:
+        attention = narrative_events(team_events[team], "attention")
+        for event in attention[:MAX_FOLLOW_UP_EVENTS]:
+            lines.append(f"- {team}: {event_detail_line(event)}")
+            follow_up_count += 1
+        for warning in team_warnings[team]:
+            lines.append(f"- {team}: {warning}")
+            follow_up_count += 1
+    if follow_up_count == 0:
+        lines.append("- No urgent decisions or follow-up items were detected.")
+    return lines
+
+
+def render_operational_appendix(
     events: list[AgentEvent],
     warnings: list[str],
     sources: list[LogSource],
-    since: datetime,
-    until: datetime,
-) -> str:
+) -> list[str]:
     grouped: dict[str, list[AgentEvent]] = defaultdict(list)
     for event in events:
         grouped[event.category].append(event)
@@ -481,16 +829,7 @@ def render_report(
     attention = grouped["attention"]
 
     lines = [
-        REPORT_TITLE,
-        "",
-        f"Window: {since.strftime('%Y-%m-%d %H:%M UTC')} to {until.strftime('%Y-%m-%d %H:%M UTC')}",
-        f"From: {report_from() or 'not configured'}",
-        f"To: {report_to() or 'not configured'}",
-        "",
-        "Executive Summary:",
-        *render_executive_summary(completed, work, skipped, attention, warnings),
-        "",
-        "Overview:",
+        "Operational Appendix:",
         f"- Log files configured: {len(sources)}",
         f"- Events found: {len(events)}",
         f"- Completed work events: {len(completed)}",
@@ -503,7 +842,7 @@ def render_report(
         lines.extend(["", "Log Warnings:"])
         lines.extend(f"- {warning}" for warning in warnings)
 
-    lines.extend(["", "Completed Work:"])
+    lines.extend(["", "Completed Work Log:"])
     if completed:
         lines.extend(event_line(event) for event in completed[:MAX_COMPLETED_EVENTS])
         if len(completed) > MAX_COMPLETED_EVENTS:
@@ -514,7 +853,7 @@ def render_report(
         lines.append("- No completed runner work was detected in this window.")
 
     if attention:
-        lines.extend(["", "Needs Attention:"])
+        lines.extend(["", "Attention Log:"])
         lines.extend(event_line(event) for event in attention[:MAX_ATTENTION_EVENTS])
         if len(attention) > MAX_ATTENTION_EVENTS:
             lines.append(
@@ -522,23 +861,57 @@ def render_report(
             )
 
     if skipped:
-        lines.extend(["", "No-op Summary:"])
+        lines.extend(["", "No-op Volume:"])
         lines.extend(summarize_repeated(skipped))
 
     if work:
-        lines.extend(["", "Work/Check Summary:"])
+        lines.extend(["", "Monitoring and Check Volume:"])
         lines.extend(summarize_repeated(work))
 
     lines.extend(["", "Log Sources:"])
     for source in sources:
         lines.append(f"- {source.name}: {source.path}")
+    return lines
+
+
+def render_report(
+    events: list[AgentEvent],
+    warnings: list[str],
+    sources: list[LogSource],
+    since: datetime,
+    until: datetime,
+) -> str:
+    team_events = grouped_by_team(events)
+    team_warnings = grouped_warnings_by_team(warnings)
+    lines = [
+        REPORT_TITLE,
+        "",
+        (
+            "Window: "
+            f"{since.astimezone(LOCAL_TZ).strftime('%Y-%m-%d %H:%M PT')} to "
+            f"{until.astimezone(LOCAL_TZ).strftime('%Y-%m-%d %H:%M PT')}"
+        ),
+        f"From: {report_from() or 'not configured'}",
+        f"To: {report_to() or 'not configured'}",
+        "Workspace: shared Hush Line agents",
+        "",
+        "This Week in Brief:",
+        *render_this_week(team_events, team_warnings),
+        "",
+        *render_team_briefs(team_events, team_warnings),
+        "",
+        *render_follow_ups(team_events, team_warnings),
+        "",
+        *render_operational_appendix(events, warnings, sources),
+    ]
 
     lines.extend(
         [
             "",
             "Notes:",
-            "- This report summarizes the local runner logs you monitor on this machine.",
-            "- Full log transcripts are not included in the email.",
+            "- This report summarizes local runner logs from the shared agents workspace.",
+            "- The narrative sections are written for cross-team review; raw operational volume "
+            "is kept in the appendix.",
             "- Delivery is restricted to Mail.app using the fixed sender and recipient above.",
         ],
     )

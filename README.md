@@ -6,9 +6,9 @@
 Automation for maintaining the [Hush Line](https://github.com/scidsg/hushline) project.
 
 This repository contains the code-agent issue runner, local environment bootstrap helper,
-sanitized run-log tooling, weekly local runner reporting, and Hush Line social launchd
-runners. Product code, social content assets, and historical release evidence remain in
-their owning repositories.
+sanitized run-log tooling, weekly cross-runner agent briefing, and Hush Line social
+launchd runners. Product code, social content assets, and historical release evidence
+remain in their owning repositories.
 
 ## Repository Layout
 
@@ -17,7 +17,8 @@ their owning repositories.
 - `scripts/agent_issue_bootstrap.sh`: resets and seeds the target Hush Line Docker environment.
 - `scripts/sanitize_agent_run_log.py`: removes sensitive local metadata and common
   credential patterns from persisted logs.
-- `scripts/weekly_hushline_code_agent_report_runner.py`: summarizes local runner logs.
+- `scripts/weekly_hushline_code_agent_report_runner.py`: builds the weekly shared-agent
+  brief from local runner logs.
 - `social/scripts/`: launchd wrappers and agent entrypoints for the Hush Line social
   planner and publishers.
 - `social/deploy/launchd/`: LaunchAgent and LaunchDaemon templates for social jobs.
@@ -51,7 +52,7 @@ make test
 
 - Never commit credentials, Codex transcripts, private keys, or unsanitized runner logs.
 - Runtime logs are stored under `logs/` and ignored by Git.
-- The weekly reporter requires `HUSHLINE_WEEKLY_AGENT_REPORT_FROM` and
+- The weekly brief runner requires `HUSHLINE_WEEKLY_AGENT_REPORT_FROM` and
   `HUSHLINE_WEEKLY_AGENT_REPORT_TO`.
 - Agent-authored product changes always require human review.
 
