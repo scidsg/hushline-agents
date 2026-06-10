@@ -958,6 +958,235 @@ def report_artifact_count(events: list[AgentEvent]) -> int:
     return sum(1 for event in events if event.summary == "Persisted weekly brief")
 
 
+def section_heading(title: str) -> list[str]:
+    return [title, "-" * len(title)]
+
+
+def attention_count(events: list[AgentEvent], warnings: list[str]) -> int:
+    return len(narrative_events(events, "attention")) + len(warnings)
+
+
+def status_word(count: int) -> str:
+    return "Clear" if count == 0 else "Needs review"
+
+
+def team_readout(team: str, events: list[AgentEvent], warnings: list[str]) -> str:
+    completed = narrative_events(events, "completed")
+    attention_total = attention_count(events, warnings)
+    if team == "Engineering":
+        prs = pr_labels(completed)
+        if prs:
+            return f"Moved {pluralize(len(prs), 'PR')} ({human_join(prs, limit=4)})."
+        return "No product PRs captured; queues were monitored."
+    if team == "Social":
+        posts = unique_in_order(linkedin_post_labels(completed))
+        if posts:
+            readout = f"Published {pluralize(len(posts), 'post')} for {human_join(posts)}."
+        else:
+            readout = "No published posts captured."
+        if attention_total:
+            verb = "needs" if attention_total == 1 else "need"
+            readout += f" {pluralize(attention_total, 'QA signal')} {verb} review."
+        return readout
+    if team == "Administrative":
+        sent_count = report_delivery_count(completed)
+        artifact_count = report_artifact_count(completed)
+        if sent_count or artifact_count:
+            return (
+                f"Sent {pluralize(sent_count, 'brief')} and persisted "
+                f"{pluralize(artifact_count, 'artifact')}."
+            )
+        return "Reporting automation monitored; no delivery captured."
+    if team == "Finance":
+        if completed or attention_total:
+            return (
+                f"Captured {pluralize(len(completed), 'completed signal')} and "
+                f"{pluralize(attention_total, 'follow-up signal')}."
+            )
+        return "In-flight function; no finance runner feed yet."
+    return "No material signal captured."
+
+
+def team_next_move(team: str, events: list[AgentEvent], warnings: list[str]) -> str:
+    completed = narrative_events(events, "completed")
+    attention_total = attention_count(events, warnings)
+    if attention_total:
+        return f"Clear {pluralize(attention_total, 'open signal')} before next cycle."
+    if team == "Engineering":
+        return "Confirm next agent-eligible issue or keep monitoring."
+    if team == "Social":
+        return "Keep editorial cadence and archive hygiene."
+    if team == "Administrative":
+        return "Keep weekly reporting delivery monitored."
+    if team == "Finance":
+        return "Add finance telemetry when billing or donor work starts."
+    if completed:
+        return "Continue current cadence."
+    return "No action required."
+
+
+def render_executive_snapshot(
+    team_events: dict[str, list[AgentEvent]],
+    team_warnings: dict[str, list[str]],
+) -> list[str]:
+    engineering_prs = pr_labels(team_events["Engineering"])
+    social_posts = unique_in_order(linkedin_post_labels(team_events["Social"]))
+    admin_reports = report_delivery_count(
+        narrative_events(team_events["Administrative"], "completed"),
+    )
+    raw_attention = [
+        event
+        for events in team_events.values()
+        for event in events
+        if event.category == "attention"
+    ]
+    attention = unique_events(raw_attention)
+    warning_count = sum(len(warnings) for warnings in team_warnings.values())
+
+    if not any(team_events.values()) and warning_count == 0:
+        return [
+            *section_heading("Executive Snapshot"),
+            "Bottom line: no material runner activity or log warnings were captured.",
+            (
+                "Coverage note: Finance remains visible as an in-flight function, but no "
+                "dedicated finance feed is part of the monitored log set yet."
+            ),
+        ]
+
+    outcomes = []
+    if engineering_prs:
+        outcomes.append(
+            f"Engineering moved {pluralize(len(engineering_prs), 'PR')} "
+            f"({human_join(engineering_prs, limit=5)})"
+        )
+    if social_posts:
+        outcomes.append(
+            f"Social published {pluralize(len(social_posts), 'post')} "
+            f"for {human_join(social_posts, limit=5, overflow_label='more posts')}"
+        )
+    if admin_reports:
+        outcomes.append(f"Administrative reporting delivered {pluralize(admin_reports, 'brief')}")
+    if not outcomes:
+        outcomes.append("runners primarily monitored queues and health signals")
+
+    lines = [
+        *section_heading("Executive Snapshot"),
+        sentence("Bottom line: " + "; ".join(outcomes)),
+    ]
+    if attention or warning_count:
+        signals = []
+        if attention:
+            signals.append(pluralize(len(attention), "distinct follow-up item"))
+        if warning_count:
+            signals.append(pluralize(warning_count, "log warning"))
+        lines.append(
+            sentence(
+                "Management readout: operating cadence is active, with "
+                + " and ".join(signals)
+                + " requiring owner review"
+            ),
+        )
+    else:
+        lines.append("Management readout: no urgent operational exceptions were detected.")
+    if not team_events["Finance"]:
+        lines.append(
+            "Coverage gap: finance remains in-flight, so missing finance activity should not be "
+            "read as confirmed inactivity."
+        )
+    return lines
+
+
+def render_workstream_scorecard(
+    team_events: dict[str, list[AgentEvent]],
+    team_warnings: dict[str, list[str]],
+) -> list[str]:
+    lines = [*section_heading("Workstream Scorecard")]
+    for team in TEAM_ORDER:
+        events = team_events[team]
+        warnings = team_warnings[team]
+        status = status_word(attention_count(events, warnings))
+        if team == "Finance" and not events and not warnings:
+            status = "Coverage gap"
+        lines.extend(
+            [
+                "",
+                f"{team} - {status}",
+                f"Readout: {team_readout(team, events, warnings)}",
+                f"Next: {team_next_move(team, events, warnings)}",
+            ],
+        )
+    return lines
+
+
+def render_leadership_watchlist(
+    team_events: dict[str, list[AgentEvent]],
+    team_warnings: dict[str, list[str]],
+    usage_snapshots: list[UsageSnapshot],
+) -> list[str]:
+    lines = [*section_heading("Leadership Watchlist")]
+    watch_count = 0
+    for team in TEAM_ORDER:
+        attention = narrative_events(team_events[team], "attention")
+        for event in attention[:MAX_FOLLOW_UP_EVENTS]:
+            lines.append(f"- {team}: {event_detail_line(event)}")
+            watch_count += 1
+        for warning in team_warnings[team]:
+            lines.append(f"- {team}: {warning}")
+            watch_count += 1
+
+    if not team_events["Finance"]:
+        lines.append(
+            "- Finance: decide when finance, billing, donation, or subscription automation "
+            "should emit a weekly signal."
+        )
+        watch_count += 1
+
+    token_totals = token_totals_by_agent(usage_snapshots)
+    if token_totals and any(token_totals.get(agent, 0) == 0 for agent in USAGE_AGENT_ORDER[:4]):
+        lines.append(
+            "- Instrumentation: token usage is visible for shared Codex activity, but not yet "
+            "attributed cleanly to every runner."
+        )
+        watch_count += 1
+
+    if watch_count == 0:
+        lines.append("- No leadership decisions or escalations were detected this week.")
+    return lines
+
+
+def render_capacity_summary(usage_snapshots: list[UsageSnapshot]) -> list[str]:
+    latest_status = latest_status_by_agent(usage_snapshots)
+    token_totals = token_totals_by_agent(usage_snapshots)
+    token_total = sum(token_totals.values())
+    status_count = sum(1 for snapshot in usage_snapshots if snapshot.kind == "status")
+    token_count = sum(1 for snapshot in usage_snapshots if snapshot.kind == "tokens")
+    lines = [
+        *section_heading("Capacity and Usage"),
+        (
+            f"Captured {pluralize(status_count, 'Codex status snapshot')} and "
+            f"{pluralize(token_count, 'token telemetry turn')}"
+            f"{f' totaling {format_count(token_total)} tokens' if token_total else ''}."
+        ),
+        "",
+        "Agent                    Codex window                         Token telemetry",
+        "-----------------------  -----------------------------------  --------------------",
+    ]
+    for agent in usage_agents_for_report(usage_snapshots):
+        status = format_status(latest_status.get(agent))
+        agent_tokens = token_totals.get(agent, 0)
+        tokens = format_token_total(agent_tokens)
+        if token_total > 0 and agent_tokens > 0:
+            share = round((agent_tokens / token_total) * 100)
+            tokens = f"{share}% share; {tokens}"
+        lines.append(f"{agent:<23}  {status:<35}  {tokens}")
+    lines.append("")
+    lines.append(
+        "Readout: status percentages show latest observed Codex window usage; token counts "
+        "appear only where telemetry exposes attributable counts."
+    )
+    return lines
+
+
 def render_this_week(
     team_events: dict[str, list[AgentEvent]],
     team_warnings: dict[str, list[str]],
@@ -1164,7 +1393,7 @@ def render_team_briefs(
         "Administrative": render_administrative_brief,
         "Finance": render_finance_brief,
     }
-    lines = ["Team Briefs:"]
+    lines = [*section_heading("Workstream Notes")]
     for team in TEAM_ORDER:
         lines.append("")
         lines.extend(renderers[team](team_events[team], team_warnings[team]))
@@ -1279,9 +1508,10 @@ def render_report(
     usage = usage_snapshots or []
     lines = [
         "=" * 72,
-        REPORT_TITLE,
+        "HUSH LINE AGENT WEEKLY",
         "=" * 72,
         "",
+        REPORT_TITLE,
         (
             "Window: "
             f"{window.since.astimezone(LOCAL_TZ).strftime('%Y-%m-%d %H:%M PT')} to "
@@ -1291,14 +1521,15 @@ def render_report(
         f"To: {report_to() or 'not configured'}",
         "Workspace: shared Hush Line agents",
         "",
-        *render_usage_highlights(usage),
+        *render_executive_snapshot(team_events, team_warnings),
         "",
-        "This Week in Brief:",
-        *render_this_week(team_events, team_warnings),
+        *render_workstream_scorecard(team_events, team_warnings),
+        "",
+        *render_leadership_watchlist(team_events, team_warnings, usage),
+        "",
+        *render_capacity_summary(usage),
         "",
         *render_team_briefs(team_events, team_warnings),
-        "",
-        *render_follow_ups(team_events, team_warnings),
         "",
         *render_operational_appendix(events, warnings, sources, usage),
     ]
@@ -1306,10 +1537,9 @@ def render_report(
     lines.extend(
         [
             "",
-            "Notes:",
+            "Method Notes:",
             "- This report summarizes local runner logs from the shared agents workspace.",
-            "- The narrative sections are written for cross-team review; raw operational volume "
-            "is kept in the appendix.",
+            "- Executive sections emphasize outcomes, risks, asks, and capacity before raw logs.",
             "- Usage attribution depends on runner log coverage. Shared Codex telemetry is not "
             "split across teams unless the source log identifies the runner.",
             "- Delivery is restricted to Mail.app using the fixed sender and recipient above.",
