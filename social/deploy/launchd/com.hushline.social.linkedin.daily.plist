@@ -18,7 +18,7 @@
     <key>HOME</key>
     <string>__HOME_DIR__</string>
     <key>CODEX_HOME</key>
-    <string>__HOME_DIR__/.codex-hushline-agent-002</string>
+    <string>__HOME_DIR__/.codex-hushline-agents</string>
     <key>HUSHLINE_SOCIAL_ENV_FILE</key>
     <string>__ENV_FILE__</string>
     <key>HUSHLINE_SOCIAL_REPO_DIR</key>
