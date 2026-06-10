@@ -38,7 +38,7 @@ CMD
 )
 
 CODEX_CMD=$(cat <<'CMD'
-cd "$HOME/hushline-agents"
+cd "$HOME/hushline"
 printf '\033]0;Codex\007'
 codex
 exec zsh -l
