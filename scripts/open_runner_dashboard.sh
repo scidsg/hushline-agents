@@ -15,20 +15,10 @@ CMD
 
 SOCIAL_AGENT_CMD=$(cat <<'CMD'
 cd "$HOME/hushline-agents"
-printf '\033]0;Social Live Log\007'
-mkdir -p "$HOME/hushline-agents/logs/social"
-touch "$HOME/hushline-agents/logs/social/social-daily.log"
-printf 'Watching combined social live log at %s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')"
-printf 'File: %s\n\n' "$HOME/hushline-agents/logs/social/social-daily.log"
-tail -n 160 -F "$HOME/hushline-agents/logs/social/social-daily.log"
-CMD
-)
-
-SOCIAL_LAUNCHD_CMD=$(cat <<'CMD'
-cd "$HOME/hushline-agents"
-printf '\033]0;Social Launchd Logs\007'
+printf '\033]0;Social Logs\007'
 mkdir -p "$HOME/hushline-agents/logs/social"
 touch \
+  "$HOME/hushline-agents/logs/social/social-daily.log" \
   "$HOME/hushline-agents/logs/social/daily-planner.stdout.log" \
   "$HOME/hushline-agents/logs/social/daily-planner.stderr.log" \
   "$HOME/hushline-agents/logs/social/linkedin-daily.stdout.log" \
@@ -37,8 +27,9 @@ touch \
   "$HOME/hushline-agents/logs/social/verified-user-weekly.stderr.log" \
   "$HOME/hushline-agents/logs/social/verified-user-weekly-linkedin.stdout.log" \
   "$HOME/hushline-agents/logs/social/verified-user-weekly-linkedin.stderr.log"
-printf 'Watching LaunchAgent stdout/stderr logs at %s\n\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')"
+printf 'Watching social runner logs at %s\n\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')"
 tail -n 80 -F \
+  "$HOME/hushline-agents/logs/social/social-daily.log" \
   "$HOME/hushline-agents/logs/social/daily-planner.stdout.log" \
   "$HOME/hushline-agents/logs/social/daily-planner.stderr.log" \
   "$HOME/hushline-agents/logs/social/linkedin-daily.stdout.log" \
@@ -80,7 +71,6 @@ CMD
 
 export CODE_AGENT_CMD
 export SOCIAL_AGENT_CMD
-export SOCIAL_LAUNCHD_CMD
 export WEEKLY_REPORT_CMD
 export CODEX_CMD
 export COMMANDS_CMD
@@ -109,20 +99,18 @@ set screenHeight to screenBottom - screenTop
 
 set leftRight to screenLeft + (screenWidth / 2)
 set rightLeft to leftRight
-set oneQuarter to screenTop + (screenHeight / 4)
+set oneThird to screenTop + (screenHeight / 3)
 set halfHeight to screenTop + (screenHeight / 2)
-set threeQuarters to screenTop + ((screenHeight * 3) / 4)
+set twoThirds to screenTop + ((screenHeight * 2) / 3)
 
-set codeAgentBounds to {screenLeft, screenTop, leftRight, oneQuarter}
-set socialAgentBounds to {screenLeft, oneQuarter, leftRight, halfHeight}
-set socialLaunchdBounds to {screenLeft, halfHeight, leftRight, threeQuarters}
-set weeklyReportBounds to {screenLeft, threeQuarters, leftRight, screenBottom}
+set codeAgentBounds to {screenLeft, screenTop, leftRight, oneThird}
+set socialAgentBounds to {screenLeft, oneThird, leftRight, twoThirds}
+set weeklyReportBounds to {screenLeft, twoThirds, leftRight, screenBottom}
 set codexBounds to {rightLeft, screenTop, screenRight, halfHeight}
 set commandsBounds to {rightLeft, halfHeight, screenRight, screenBottom}
 
 openRunnerWindow("Code Agent Logs", system attribute "CODE_AGENT_CMD", codeAgentBounds)
-openRunnerWindow("Social Live Log", system attribute "SOCIAL_AGENT_CMD", socialAgentBounds)
-openRunnerWindow("Social Launchd Logs", system attribute "SOCIAL_LAUNCHD_CMD", socialLaunchdBounds)
+openRunnerWindow("Social Logs", system attribute "SOCIAL_AGENT_CMD", socialAgentBounds)
 openRunnerWindow("Weekly Agent Report Logs", system attribute "WEEKLY_REPORT_CMD", weeklyReportBounds)
 openRunnerWindow("Codex", system attribute "CODEX_CMD", codexBounds)
 openRunnerWindow("Manual Commands", system attribute "COMMANDS_CMD", commandsBounds)
