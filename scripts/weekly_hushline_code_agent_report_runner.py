@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -32,7 +33,15 @@ MAX_COMPLETED_EVENTS = 40
 MAX_ATTENTION_EVENTS = 30
 MAX_TEAM_DETAIL_EVENTS = 6
 MAX_FOLLOW_UP_EVENTS = 8
+MAX_USAGE_DETAIL_ROWS = 8
 TEAM_ORDER = ("Engineering", "Social", "Administrative", "Finance")
+USAGE_AGENT_ORDER = (
+    "Code Agent",
+    "Social Agent",
+    "Administrative Agent",
+    "Finance Agent",
+    "Shared Codex Workspace",
+)
 FINANCE_KEYWORDS = (
     "finance",
     "billing",
@@ -99,6 +108,31 @@ class AgentEvent:
     category: str
     summary: str
     detail: str = ""
+
+
+@dataclass(frozen=True)
+class UsageSnapshot:
+    timestamp: datetime
+    source: str
+    agent: str
+    kind: str
+    window_minutes: int | None = None
+    used_percent: int | None = None
+    remaining_percent: int | None = None
+    resets_at: str = ""
+    model: str = ""
+    account: str = ""
+    input_tokens: int = 0
+    cached_input_tokens: int = 0
+    output_tokens: int = 0
+    reasoning_output_tokens: int = 0
+    total_tokens: int = 0
+
+
+@dataclass(frozen=True)
+class ReportWindow:
+    since: datetime
+    until: datetime
 
 
 class RunnerError(Exception):
@@ -196,6 +230,14 @@ def default_log_sources() -> list[LogSource]:
             Path.home() / ".codex/logs/hushline-code-agent.log",
         ),
         LogSource("Tor code agent", Path.home() / "tor-code-agent/logs/tor-agent.err.log"),
+        LogSource(
+            "Shared Codex telemetry",
+            Path.home() / ".codex-hushline-agents/log/codex-tui.log",
+        ),
+        LogSource(
+            "Shared Codex sessions",
+            Path.home() / ".codex-hushline-agents/sessions",
+        ),
         LogSource("Hush Line social runner", root / "logs/social/social-daily.log"),
         LogSource("Weekly report runner", root / "logs/weekly-agent-report.stdout.log"),
         LogSource("Weekly report runner errors", root / "logs/weekly-agent-report.stderr.log"),
@@ -224,18 +266,34 @@ def parse_log_timestamp(line: str) -> tuple[datetime | None, str]:
         r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (PDT|PST)\]\s*(.*)$",
         line,
     )
-    if not match:
-        return None, line
-    timestamp = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S").replace(
-        tzinfo=LOG_TIMEZONES[match.group(2)],
+    if match:
+        timestamp = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S").replace(
+            tzinfo=LOG_TIMEZONES[match.group(2)],
+        )
+        return timestamp.astimezone(UTC), match.group(3)
+
+    iso_match = re.match(
+        r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\s*(.*)$",
+        line,
     )
-    return timestamp.astimezone(UTC), match.group(3)
+    if iso_match:
+        timestamp = datetime.fromisoformat(iso_match.group(1).replace("Z", "+00:00"))
+        return timestamp.astimezone(UTC), iso_match.group(2)
+
+    json_match = re.match(r'^\{"timestamp":"([^"]+)"', line)
+    if json_match:
+        timestamp = datetime.fromisoformat(
+            json_match.group(1).replace("Z", "+00:00"),
+        )
+        return timestamp.astimezone(UTC), line
+
+    return None, line
 
 
-def read_source_lines(source: LogSource) -> list[tuple[datetime | None, str]]:
-    if not source.path.exists():
+def iter_raw_source_lines(source: LogSource) -> list[tuple[datetime | None, str]]:
+    if not source.path.exists() or source.path.is_dir():
         return []
-    events: list[tuple[datetime | None, str]] = []
+    lines: list[tuple[datetime | None, str]] = []
     current_timestamp: datetime | None = None
     fallback_timestamp = (
         datetime.fromtimestamp(source.path.stat().st_mtime, UTC)
@@ -246,8 +304,12 @@ def read_source_lines(source: LogSource) -> list[tuple[datetime | None, str]]:
         timestamp, message = parse_log_timestamp(line)
         if timestamp is not None:
             current_timestamp = timestamp
-        events.append((current_timestamp or fallback_timestamp, normalize_text(message)))
-    return events
+        lines.append((current_timestamp or fallback_timestamp, message))
+    return lines
+
+
+def read_source_lines(source: LogSource) -> list[tuple[datetime | None, str]]:
+    return [(timestamp, normalize_text(line)) for timestamp, line in iter_raw_source_lines(source)]
 
 
 def pr_event(source: str, timestamp: datetime, line: str) -> AgentEvent | None:
@@ -334,6 +396,333 @@ def event_sort_key(event: AgentEvent) -> tuple[float, int]:
         "skipped": 3,
     }
     return (-event.timestamp.timestamp(), category_priority.get(event.category, 9))
+
+
+def usage_sort_key(snapshot: UsageSnapshot) -> float:
+    return -snapshot.timestamp.timestamp()
+
+
+def usage_agent(source: str) -> str:
+    text = source.lower()
+    if "social" in text or "linkedin" in text:
+        return "Social Agent"
+    if "weekly report" in text or "administrative" in text:
+        return "Administrative Agent"
+    if any(keyword in text for keyword in FINANCE_KEYWORDS):
+        return "Finance Agent"
+    if "shared codex" in text or "codex telemetry" in text or "codex sessions" in text:
+        return "Shared Codex Workspace"
+    if "issue runner" in text or "code agent" in text or "tor" in text:
+        return "Code Agent"
+    return "Administrative Agent"
+
+
+def parse_codex_status_line(
+    source: LogSource,
+    timestamp: datetime,
+    line: str,
+    model: str,
+    account: str,
+) -> UsageSnapshot | None:
+    match = re.match(
+        r"^Codex /status: primary (\d+)m window (\d+)% used; "
+        r"(\d+)% remaining; resets at (.+)\.$",
+        line,
+    )
+    if not match:
+        return None
+    return UsageSnapshot(
+        timestamp=timestamp,
+        source=source.name,
+        agent=usage_agent(source.name),
+        kind="status",
+        window_minutes=int(match.group(1)),
+        used_percent=int(match.group(2)),
+        remaining_percent=int(match.group(3)),
+        resets_at=match.group(4),
+        model=model,
+        account=account,
+    )
+
+
+def token_value(line: str, key: str) -> int:
+    match = re.search(rf"{re.escape(key)}=(\d+)", line)
+    return int(match.group(1)) if match else 0
+
+
+def parse_codex_token_line(
+    source: LogSource,
+    timestamp: datetime,
+    line: str,
+) -> UsageSnapshot | None:
+    if "codex.turn.token_usage." not in line:
+        return None
+    total_tokens = token_value(line, "codex.turn.token_usage.total_tokens")
+    if total_tokens <= 0:
+        return None
+    return UsageSnapshot(
+        timestamp=timestamp,
+        source=source.name,
+        agent=usage_agent(source.name),
+        kind="tokens",
+        input_tokens=token_value(line, "codex.turn.token_usage.input_tokens"),
+        cached_input_tokens=token_value(line, "codex.turn.token_usage.cached_input_tokens"),
+        output_tokens=token_value(line, "codex.turn.token_usage.output_tokens"),
+        reasoning_output_tokens=token_value(
+            line,
+            "codex.turn.token_usage.reasoning_output_tokens",
+        ),
+        total_tokens=total_tokens,
+    )
+
+
+def parse_int_value(value: object) -> int:
+    return int(value) if isinstance(value, (int, float)) else 0
+
+
+def format_reset_timestamp(value: object) -> str:
+    if not isinstance(value, (int, float)):
+        return ""
+    return (
+        datetime.fromtimestamp(int(value), UTC)
+        .astimezone(LOCAL_TZ)
+        .strftime(
+            "%Y-%m-%d %H:%M:%S %Z",
+        )
+    )
+
+
+def parse_codex_session_line(
+    source: LogSource,
+    timestamp: datetime,
+    line: str,
+) -> list[UsageSnapshot]:
+    if not line.startswith("{") or '"type":"token_count"' not in line:
+        return []
+    try:
+        data = json.loads(line)
+    except json.JSONDecodeError:
+        return []
+    payload = data.get("payload")
+    if not isinstance(payload, dict) or payload.get("type") != "token_count":
+        return []
+
+    snapshots: list[UsageSnapshot] = []
+    agent = usage_agent(source.name)
+    rate_limits = payload.get("rate_limits")
+    if isinstance(rate_limits, dict):
+        primary = rate_limits.get("primary")
+        if isinstance(primary, dict):
+            used_percent = primary.get("used_percent")
+            window_minutes = primary.get("window_minutes")
+            snapshots.append(
+                UsageSnapshot(
+                    timestamp=timestamp,
+                    source=source.name,
+                    agent=agent,
+                    kind="status",
+                    window_minutes=parse_int_value(window_minutes),
+                    used_percent=parse_int_value(used_percent),
+                    remaining_percent=100 - parse_int_value(used_percent),
+                    resets_at=format_reset_timestamp(primary.get("resets_at")),
+                    model=str(payload.get("model") or ""),
+                    account="shared agents workspace",
+                ),
+            )
+
+    info = payload.get("info")
+    if not isinstance(info, dict):
+        return snapshots
+    usage = info.get("last_token_usage")
+    if not isinstance(usage, dict):
+        return snapshots
+    total_tokens = parse_int_value(usage.get("total_tokens"))
+    if total_tokens <= 0:
+        return snapshots
+    snapshots.append(
+        UsageSnapshot(
+            timestamp=timestamp,
+            source=source.name,
+            agent=agent,
+            kind="tokens",
+            input_tokens=parse_int_value(usage.get("input_tokens")),
+            cached_input_tokens=parse_int_value(usage.get("cached_input_tokens")),
+            output_tokens=parse_int_value(usage.get("output_tokens")),
+            reasoning_output_tokens=parse_int_value(usage.get("reasoning_output_tokens")),
+            total_tokens=total_tokens,
+        ),
+    )
+    return snapshots
+
+
+def usage_source_files(source: LogSource, since: datetime) -> list[LogSource]:
+    if source.path.is_dir():
+        files = []
+        for path in sorted(source.path.glob("**/*.jsonl")):
+            try:
+                modified_at = datetime.fromtimestamp(path.stat().st_mtime, UTC)
+            except OSError:
+                continue
+            if modified_at >= since:
+                files.append(LogSource(source.name, path))
+        return files
+    return [source]
+
+
+def collect_usage_snapshots(sources: list[LogSource], since: datetime) -> list[UsageSnapshot]:
+    snapshots: list[UsageSnapshot] = []
+    for source in sources:
+        usage_files = usage_source_files(source, since)
+        model = ""
+        account = ""
+        for usage_file in usage_files:
+            if not usage_file.path.exists():
+                continue
+            for timestamp, line in iter_raw_source_lines(usage_file):
+                if timestamp is None or timestamp < since:
+                    continue
+                if line.startswith("Codex model:"):
+                    model = line.removeprefix("Codex model:").strip()
+                    continue
+                if line.startswith("Codex account:"):
+                    account = line.removeprefix("Codex account:").strip()
+                    continue
+                snapshots.extend(parse_codex_session_line(source, timestamp, line))
+                status = parse_codex_status_line(source, timestamp, line, model, account)
+                if status is not None:
+                    snapshots.append(status)
+                    continue
+                token_snapshot = parse_codex_token_line(source, timestamp, line)
+                if token_snapshot is not None:
+                    snapshots.append(token_snapshot)
+    return sorted(snapshots, key=usage_sort_key)
+
+
+def latest_status_by_agent(snapshots: list[UsageSnapshot]) -> dict[str, UsageSnapshot]:
+    latest: dict[str, UsageSnapshot] = {}
+    for snapshot in snapshots:
+        if snapshot.kind != "status":
+            continue
+        latest.setdefault(snapshot.agent, snapshot)
+    return latest
+
+
+def token_totals_by_agent(snapshots: list[UsageSnapshot]) -> dict[str, int]:
+    totals: dict[str, int] = defaultdict(int)
+    for snapshot in snapshots:
+        if snapshot.kind == "tokens":
+            totals[snapshot.agent] += snapshot.total_tokens
+    return totals
+
+
+def format_count(value: int) -> str:
+    return f"{value:,}"
+
+
+def format_status(snapshot: UsageSnapshot | None) -> str:
+    if snapshot is None or snapshot.used_percent is None:
+        return "not captured"
+    remaining = (
+        f"{snapshot.remaining_percent}% left"
+        if snapshot.remaining_percent is not None
+        else "remaining unknown"
+    )
+    window = f"{snapshot.window_minutes}m window" if snapshot.window_minutes else "primary window"
+    return f"{snapshot.used_percent}% used / {remaining} ({window})"
+
+
+def format_token_total(total_tokens: int) -> str:
+    if total_tokens <= 0:
+        return "not captured"
+    return f"{format_count(total_tokens)} tokens"
+
+
+def usage_agents_for_report(snapshots: list[UsageSnapshot]) -> list[str]:
+    agents = list(USAGE_AGENT_ORDER)
+    for snapshot in snapshots:
+        if snapshot.agent not in agents:
+            agents.append(snapshot.agent)
+    return agents
+
+
+def render_usage_highlights(usage_snapshots: list[UsageSnapshot]) -> list[str]:
+    latest_status = latest_status_by_agent(usage_snapshots)
+    token_totals = token_totals_by_agent(usage_snapshots)
+    token_total = sum(token_totals.values())
+
+    lines = [
+        "Usage Highlights:",
+        "Agent                    Codex window                         Token telemetry",
+        "-----------------------  -----------------------------------  --------------------",
+    ]
+    for agent in usage_agents_for_report(usage_snapshots):
+        status = format_status(latest_status.get(agent))
+        agent_tokens = token_totals.get(agent, 0)
+        tokens = format_token_total(agent_tokens)
+        if token_total > 0 and agent_tokens > 0:
+            share = round((agent_tokens / token_total) * 100)
+            tokens = f"{share}% share; {tokens}"
+        lines.append(f"{agent:<23}  {status:<35}  {tokens}")
+
+    if not usage_snapshots:
+        lines.append("")
+        lines.append(
+            "No Codex status or token telemetry was captured in the monitored logs this week."
+        )
+    else:
+        status_count = sum(1 for snapshot in usage_snapshots if snapshot.kind == "status")
+        token_count = sum(1 for snapshot in usage_snapshots if snapshot.kind == "tokens")
+        lines.extend(
+            [
+                "",
+                (
+                    f"Captured {pluralize(status_count, 'status snapshot')} and "
+                    f"{pluralize(token_count, 'token telemetry turn')}"
+                    f"{f' totaling {format_count(token_total)} tokens' if token_total else ''}."
+                ),
+                (
+                    "Percentages are latest observed Codex window usage by attributable runner; "
+                    "token counts are only shown when telemetry logs expose them."
+                ),
+            ],
+        )
+    return lines
+
+
+def render_usage_detail(usage_snapshots: list[UsageSnapshot]) -> list[str]:
+    lines = ["Usage Detail:"]
+    if not usage_snapshots:
+        lines.append("- No usage snapshots were captured.")
+        return lines
+
+    latest_status = list(latest_status_by_agent(usage_snapshots).values())
+    if latest_status:
+        lines.append("- Latest Codex windows:")
+        for snapshot in sorted(latest_status, key=usage_sort_key)[:MAX_USAGE_DETAIL_ROWS]:
+            account = f", account {snapshot.account}" if snapshot.account else ""
+            model = f", model {snapshot.model}" if snapshot.model else ""
+            resets = f", resets {snapshot.resets_at}" if snapshot.resets_at else ""
+            lines.append(f"  - {snapshot.agent}: {format_status(snapshot)}{resets}{model}{account}")
+
+    token_snapshots = [snapshot for snapshot in usage_snapshots if snapshot.kind == "tokens"]
+    if token_snapshots:
+        token_totals = token_totals_by_agent(usage_snapshots)
+        lines.append("- Token telemetry totals:")
+        for agent in usage_agents_for_report(usage_snapshots):
+            total = token_totals.get(agent, 0)
+            if total <= 0:
+                continue
+            agent_snapshots = [snapshot for snapshot in token_snapshots if snapshot.agent == agent]
+            input_tokens = sum(snapshot.input_tokens for snapshot in agent_snapshots)
+            output_tokens = sum(snapshot.output_tokens for snapshot in agent_snapshots)
+            reasoning_tokens = sum(snapshot.reasoning_output_tokens for snapshot in agent_snapshots)
+            cached_tokens = sum(snapshot.cached_input_tokens for snapshot in agent_snapshots)
+            lines.append(
+                f"  - {agent}: {format_count(total)} total "
+                f"({format_count(input_tokens)} input, {format_count(cached_tokens)} cached, "
+                f"{format_count(output_tokens)} output, {format_count(reasoning_tokens)} reasoning)"
+            )
+    return lines
 
 
 def event_line(event: AgentEvent) -> str:
@@ -818,6 +1207,7 @@ def render_operational_appendix(
     events: list[AgentEvent],
     warnings: list[str],
     sources: list[LogSource],
+    usage_snapshots: list[UsageSnapshot],
 ) -> list[str]:
     grouped: dict[str, list[AgentEvent]] = defaultdict(list)
     for event in events:
@@ -836,7 +1226,10 @@ def render_operational_appendix(
         f"- Work/check events: {len(work)}",
         f"- Skipped/no-op events: {len(skipped)}",
         f"- Attention events: {len(attention)}",
+        f"- Usage snapshots: {len(usage_snapshots)}",
     ]
+
+    lines.extend(["", *render_usage_detail(usage_snapshots)])
 
     if warnings:
         lines.extend(["", "Log Warnings:"])
@@ -878,22 +1271,27 @@ def render_report(
     events: list[AgentEvent],
     warnings: list[str],
     sources: list[LogSource],
-    since: datetime,
-    until: datetime,
+    window: ReportWindow,
+    usage_snapshots: list[UsageSnapshot] | None = None,
 ) -> str:
     team_events = grouped_by_team(events)
     team_warnings = grouped_warnings_by_team(warnings)
+    usage = usage_snapshots or []
     lines = [
+        "=" * 72,
         REPORT_TITLE,
+        "=" * 72,
         "",
         (
             "Window: "
-            f"{since.astimezone(LOCAL_TZ).strftime('%Y-%m-%d %H:%M PT')} to "
-            f"{until.astimezone(LOCAL_TZ).strftime('%Y-%m-%d %H:%M PT')}"
+            f"{window.since.astimezone(LOCAL_TZ).strftime('%Y-%m-%d %H:%M PT')} to "
+            f"{window.until.astimezone(LOCAL_TZ).strftime('%Y-%m-%d %H:%M PT')}"
         ),
         f"From: {report_from() or 'not configured'}",
         f"To: {report_to() or 'not configured'}",
         "Workspace: shared Hush Line agents",
+        "",
+        *render_usage_highlights(usage),
         "",
         "This Week in Brief:",
         *render_this_week(team_events, team_warnings),
@@ -902,7 +1300,7 @@ def render_report(
         "",
         *render_follow_ups(team_events, team_warnings),
         "",
-        *render_operational_appendix(events, warnings, sources),
+        *render_operational_appendix(events, warnings, sources, usage),
     ]
 
     lines.extend(
@@ -912,6 +1310,8 @@ def render_report(
             "- This report summarizes local runner logs from the shared agents workspace.",
             "- The narrative sections are written for cross-team review; raw operational volume "
             "is kept in the appendix.",
+            "- Usage attribution depends on runner log coverage. Shared Codex telemetry is not "
+            "split across teams unless the source log identifies the runner.",
             "- Delivery is restricted to Mail.app using the fixed sender and recipient above.",
         ],
     )
@@ -1012,7 +1412,8 @@ def main(argv: list[str] | None = None) -> int:
     since = until - timedelta(days=args.lookback_days)
     sources = resolved_log_sources(args.log_file)
     events, warnings = collect_events(sources, since)
-    body = render_report(events, warnings, sources, since, until)
+    usage_snapshots = collect_usage_snapshots(sources, since)
+    body = render_report(events, warnings, sources, ReportWindow(since, until), usage_snapshots)
     subject = build_subject(since, until)
 
     if args.output:

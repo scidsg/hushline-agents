@@ -287,12 +287,14 @@ Every queued issue is assumed to require a real change. Once the runner claims a
 
 Script: `scripts/weekly_hushline_code_agent_report_runner.py`
 
-This runner scans the local runner logs monitored on this machine and builds a plain-text `Hush Line Weekly Agent Brief` for the shared agents workspace. The email is organized as an executive-readable weekly narrative first, then team briefs for Engineering, Social, Administrative, and in-flight Finance activity, followed by decisions/follow-ups and a technical operational appendix. It persists a timestamped local copy before sending through the native macOS Mail app. Mail.app delivery uses a bounded AppleScript timeout and sends asynchronously once the message is handed to Mail. If Mail reports its own AppleEvent timeout after that handoff, or if the outer `osascript` process exceeds its timeout while waiting on Mail.app, the runner logs a warning and exits successfully so slow Mail.app network delivery does not fail the LaunchAgent run after the local report has already been written.
+This runner scans the local runner logs monitored on this machine and builds a plain-text `Hush Line Weekly Agent Brief` for the shared agents workspace. The email opens with formatted usage highlights for Codex status windows and captured token telemetry, then an executive-readable weekly narrative, team briefs for Engineering, Social, Administrative, and in-flight Finance activity, decisions/follow-ups, and a technical operational appendix. It persists a timestamped local copy before sending through the native macOS Mail app. Mail.app delivery uses a bounded AppleScript timeout and sends asynchronously once the message is handed to Mail. If Mail reports its own AppleEvent timeout after that handoff, or if the outer `osascript` process exceeds its timeout while waiting on Mail.app, the runner logs a warning and exits successfully so slow Mail.app network delivery does not fail the LaunchAgent run after the local report has already been written.
 
 Default log files:
 
 - `~/.codex/logs/hushline-code-agent.log`
 - `~/tor-code-agent/logs/tor-agent.err.log`
+- `~/.codex-hushline-agents/log/codex-tui.log`
+- `~/.codex-hushline-agents/sessions`
 - `logs/social/social-daily.log`
 - `logs/weekly-agent-report.stdout.log`
 - `logs/weekly-agent-report.stderr.log`
@@ -302,7 +304,7 @@ Delivery is fixed in code:
 - From: `HUSHLINE_WEEKLY_AGENT_REPORT_FROM`
 - To: `HUSHLINE_WEEKLY_AGENT_REPORT_TO`
 
-Additional log files can be supplied with repeated `--log-file` arguments or the colon-separated `HUSHLINE_WEEKLY_AGENT_REPORT_LOG_FILES` environment variable. The runner deduplicates narrative highlights so repeated stdout/stderr lines do not inflate the executive summary, while preserving raw completed work, skipped/no-op checks, work/check activity, and attention items in the appendix.
+Additional log files can be supplied with repeated `--log-file` arguments or the colon-separated `HUSHLINE_WEEKLY_AGENT_REPORT_LOG_FILES` environment variable. The runner deduplicates narrative highlights so repeated stdout/stderr lines do not inflate the executive summary, while preserving raw completed work, skipped/no-op checks, work/check activity, attention items, and usage detail in the appendix. Usage attribution is intentionally conservative: `/status` percentages are assigned to the runner log that captured them, while token telemetry from the shared Codex workspace is reported as shared unless the source log identifies a specific runner.
 
 Persisted report bodies are written to `logs/weekly-agent-reports/weekly-agent-report-<timestamp>.txt` by default. The directory is intentionally ignored by git. The default retention is the newest `12` reports; override it with `--report-retention` or `HUSHLINE_WEEKLY_AGENT_REPORT_RETENTION`. Override the report directory with `--report-output-dir` or `HUSHLINE_WEEKLY_AGENT_REPORT_OUTPUT_DIR`.
 
