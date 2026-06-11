@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time as time_module
 import urllib.request
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
@@ -31,6 +32,42 @@ MAIL_APP_APPLESCRIPT_TIMEOUT_SECONDS = 300
 MAIL_APP_OSASCRIPT_TIMEOUT_SECONDS = MAIL_APP_APPLESCRIPT_TIMEOUT_SECONDS + 30
 MAIL_APP_APPLE_EVENT_TIMEOUT_CODE = "-1712"
 MAX_DRAFT_WORDS = 180
+DEFAULT_BOUNCE_MONITOR_SECONDS = 5 * 60
+DEFAULT_BOUNCE_POLL_SECONDS = 15
+EMAIL_ADDRESS_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
+RECIPIENT_DISCOVERY_ENV = "HUSHLINE_SALES_AGENT_RECIPIENT_DISCOVERY"
+VERIFIED_RECIPIENT_SOURCE_PREFIX = "verified:"
+RECIPIENT_REJECT_LOCAL_PARTS = {
+    "abuse",
+    "admin",
+    "administrator",
+    "billing",
+    "careers",
+    "dns",
+    "help",
+    "hostmaster",
+    "jobs",
+    "legal",
+    "mailer-daemon",
+    "noreply",
+    "no-reply",
+    "postmaster",
+    "press",
+    "privacy",
+    "security",
+    "support",
+    "webmaster",
+}
+RECIPIENT_LOCAL_PART_WEIGHTS = {
+    "sales": 100,
+    "enterprise": 90,
+    "business": 85,
+    "partnerships": 75,
+    "partners": 75,
+    "contact": 65,
+    "hello": 45,
+    "info": 35,
+}
 
 MAIL_APP_APPLESCRIPT = r"""
 on run argv
@@ -55,18 +92,51 @@ on run argv
     end if
 
     with timeout of 300 seconds
-      ignoring application responses
-        set messageContent to messageBody & return & return
-        set messageProps to {subject:messageSubject, content:messageContent, visible:false}
-        set outgoingMessage to make new outgoing message with properties messageProps
-        tell outgoingMessage
-          set sender to fromAddress
-          make new to recipient at end of to recipients with properties {address:recipientAddress}
+      set messageContent to messageBody & return & return
+      set messageProps to {subject:messageSubject, content:messageContent, visible:false}
+      set outgoingMessage to make new outgoing message with properties messageProps
+      tell outgoingMessage
+        set sender to fromAddress
+        make new to recipient at end of to recipients with properties {address:recipientAddress}
+        ignoring application responses
           send
-        end tell
-      end ignoring
+        end ignoring
+      end tell
     end timeout
   end tell
+end run
+"""
+
+MAIL_APP_BOUNCE_CHECK_APPLESCRIPT = r"""
+on run argv
+  set recipientAddress to item 1 of argv
+  set lookbackSeconds to (item 2 of argv) as integer
+  set sinceDate to (current date) - lookbackSeconds
+  set bounceTerms to {"undeliverable", "delivery status notification", "failure notice"}
+  set bounceTerms to bounceTerms & {"returned mail", "mail delivery failed"}
+  set bounceTerms to bounceTerms & {"delivery has failed", "couldn't be delivered"}
+  set bounceTerms to bounceTerms & {"wasn't delivered", "message not delivered"}
+  set bounceTerms to bounceTerms & {"mailer-daemon", "postmaster"}
+
+  tell application "Mail"
+    set candidateMessages to messages of inbox whose date received is greater than sinceDate
+    repeat with mailMessage in candidateMessages
+      set messageSender to sender of mailMessage as text
+      set messageSubject to subject of mailMessage as text
+      set messageContent to content of mailMessage as text
+      set messageHaystack to messageSender & return & messageSubject & return & messageContent
+
+      if messageHaystack contains recipientAddress then
+        repeat with bounceTerm in bounceTerms
+          if messageHaystack contains (bounceTerm as text) then
+            return "undeliverable: " & messageSubject
+          end if
+        end repeat
+      end if
+    end repeat
+  end tell
+
+  return ""
 end run
 """
 
@@ -120,8 +190,9 @@ class CompanyProfile:
     organization_key: str
     industry: str
     timezone_name: str
-    recipient_email: str
     regulatory_context: str
+    recipient_email: str | None
+    recipient_source: str = "maintained company profile"
 
 
 @dataclass(frozen=True)
@@ -131,9 +202,16 @@ class PageSummary:
 
 
 @dataclass(frozen=True)
+class ResolvedRecipient:
+    email: str
+    source: str
+
+
+@dataclass(frozen=True)
 class SalesDraft:
     sender: str
     recipient: str
+    recipient_source: str
     subject: str
     body: str
     target: ContactFormRecord
@@ -147,144 +225,146 @@ COMPANY_PROFILES: dict[str, CompanyProfile] = {
         "microsoft",
         "enterprise software",
         "America/Los_Angeles",
-        "sales@microsoft.com",
         "us_public_company",
+        None,
+        "official public contact path is web/form based; no verified sales email",
     ),
     "skype.com": CompanyProfile(
         "Microsoft",
         "microsoft",
         "enterprise communications",
         "America/Los_Angeles",
-        "sales@microsoft.com",
         "us_public_company",
+        None,
+        "official public contact path is web/form based; no verified sales email",
     ),
     "workers.dev": CompanyProfile(
         "Cloudflare",
         "cloudflare",
         "internet infrastructure",
         "America/Los_Angeles",
-        "sales@cloudflare.com",
         "us_public_company",
+        "sales@cloudflare.com",
     ),
     "b-cdn.net": CompanyProfile(
         "Bunny.net",
         "bunny",
         "content delivery infrastructure",
         "Europe/Ljubljana",
-        "sales@bunny.net",
         "eu_private_sector",
+        "sales@bunny.net",
     ),
     "cnn.com": CompanyProfile(
         "CNN",
         "cnn",
         "media",
         "America/New_York",
-        "sales@cnn.com",
         "us_media",
+        "sales@cnn.com",
     ),
     "ubuntu.com": CompanyProfile(
         "Canonical",
         "canonical",
         "open source software",
         "Europe/London",
-        "sales@canonical.com",
         "uk_private_sector",
+        "sales@canonical.com",
     ),
     "stripe.com": CompanyProfile(
         "Stripe",
         "stripe",
         "payments",
         "America/Los_Angeles",
-        "sales@stripe.com",
         "financial_services",
+        "sales@stripe.com",
     ),
     "meraki.com": CompanyProfile(
         "Cisco Meraki",
         "cisco",
         "networking",
         "America/Los_Angeles",
-        "sales@cisco.com",
         "us_public_company",
+        "sales@cisco.com",
     ),
     "quickconnect.to": CompanyProfile(
         "Synology",
         "synology",
         "network storage",
         "Asia/Taipei",
-        "sales@synology.com",
         "general_cross_border",
+        "sales@synology.com",
     ),
     "selectel.ru": CompanyProfile(
         "Selectel",
         "selectel",
         "cloud infrastructure",
         "Europe/Moscow",
-        "sales@selectel.ru",
         "general_cross_border",
+        "sales@selectel.ru",
     ),
     "plesk.com": CompanyProfile(
         "Plesk",
         "plesk",
         "hosting software",
         "Europe/Zurich",
-        "sales@plesk.com",
         "general_cross_border",
+        "sales@plesk.com",
     ),
     "tp-link.com": CompanyProfile(
         "TP-Link",
         "tp-link",
         "networking hardware",
         "Asia/Shanghai",
-        "sales@tp-link.com",
         "general_cross_border",
+        "sales@tp-link.com",
     ),
     "zendesk.com": CompanyProfile(
         "Zendesk",
         "zendesk",
         "customer service software",
         "America/Los_Angeles",
-        "sales@zendesk.com",
         "us_public_company",
+        "sales@zendesk.com",
     ),
     "cloudns.net": CompanyProfile(
         "ClouDNS",
         "cloudns",
         "DNS infrastructure",
         "Europe/Sofia",
-        "sales@cloudns.net",
         "eu_private_sector",
+        "sales@cloudns.net",
     ),
     "netangels.ru": CompanyProfile(
         "NetAngels",
         "netangels",
         "hosting",
         "Europe/Moscow",
-        "sales@netangels.ru",
         "general_cross_border",
+        "sales@netangels.ru",
     ),
     "steamcommunity.com": CompanyProfile(
         "Valve",
         "valve",
         "gaming and digital distribution",
         "America/Los_Angeles",
-        "business@valvesoftware.com",
         "us_private_sector",
+        "business@valvesoftware.com",
     ),
     "mediatek.com": CompanyProfile(
         "MediaTek",
         "mediatek",
         "semiconductors",
         "Asia/Taipei",
-        "sales@mediatek.com",
         "general_cross_border",
+        "sales@mediatek.com",
     ),
     "paloaltonetworks.com": CompanyProfile(
         "Palo Alto Networks",
         "palo-alto-networks",
         "cybersecurity",
         "America/Los_Angeles",
-        "sales@paloaltonetworks.com",
         "us_public_company",
+        "sales@paloaltonetworks.com",
     ),
 }
 
@@ -311,6 +391,26 @@ class SummaryParser(html.parser.HTMLParser):
     def handle_data(self, data: str) -> None:
         if self.in_title:
             self.title_parts.append(data)
+
+
+class RecipientParser(html.parser.HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.mailto_addresses: list[str] = []
+        self.visible_addresses: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "a":
+            return
+        attr_map = {key.lower(): value or "" for key, value in attrs}
+        href = attr_map.get("href", "")
+        if href.lower().startswith("mailto:"):
+            address = href[7:].split("?", 1)[0].strip()
+            if address:
+                self.mailto_addresses.append(address)
+
+    def handle_data(self, data: str) -> None:
+        self.visible_addresses.extend(EMAIL_ADDRESS_RE.findall(data))
 
 
 def repo_root() -> Path:
@@ -387,7 +487,7 @@ def load_contact_form_records(csv_path: Path) -> list[ContactFormRecord]:
 
 def load_state(state_file: Path) -> dict[str, Any]:
     if not state_file.exists():
-        return {"sent": []}
+        return {"sent": [], "failed": []}
     with state_file.open(encoding="utf-8") as handle:
         data = json.load(handle)
     if not isinstance(data, dict):
@@ -395,6 +495,9 @@ def load_state(state_file: Path) -> dict[str, Any]:
     sent = data.setdefault("sent", [])
     if not isinstance(sent, list):
         raise SalesAgentError(f"State file sent field must be a list: {state_file}")
+    failed = data.setdefault("failed", [])
+    if not isinstance(failed, list):
+        raise SalesAgentError(f"State file failed field must be a list: {state_file}")
     return data
 
 
@@ -411,6 +514,18 @@ def sent_organization_keys(state: dict[str, Any]) -> set[str]:
         if isinstance(entry, dict) and isinstance(entry.get("organization_key"), str):
             keys.add(entry["organization_key"])
     return keys
+
+
+def failed_organization_keys(state: dict[str, Any]) -> set[str]:
+    keys = set()
+    for entry in state.get("failed", []):
+        if isinstance(entry, dict) and isinstance(entry.get("organization_key"), str):
+            keys.add(entry["organization_key"])
+    return keys
+
+
+def attempted_organization_keys(state: dict[str, Any]) -> set[str]:
+    return sent_organization_keys(state) | failed_organization_keys(state)
 
 
 def is_sales_candidate(record: ContactFormRecord) -> bool:
@@ -431,23 +546,163 @@ def profile_for_record(record: ContactFormRecord) -> CompanyProfile:
         organization_key=record.domain,
         industry="digital services",
         timezone_name=timezone_name,
-        recipient_email=f"sales@{record.domain.removeprefix('www.')}",
         regulatory_context="general_cross_border",
+        recipient_email=None,
+        recipient_source="derived profile; recipient must be discovered from public pages",
     )
+
+
+def normalize_email_address(value: str) -> str | None:
+    normalized = value.strip().strip("<>,.;:()[]{}").lower()
+    if not EMAIL_ADDRESS_RE.fullmatch(normalized):
+        return None
+    local_part, domain = normalized.rsplit("@", 1)
+    if local_part in RECIPIENT_REJECT_LOCAL_PARTS:
+        return None
+    if domain.endswith((".example", ".example.com", ".invalid", ".test")):
+        return None
+    return normalized
+
+
+def fetch_candidate_email_pages(
+    record: ContactFormRecord,
+    timeout_seconds: float,
+) -> list[tuple[str, str]]:
+    pages: list[tuple[str, str]] = []
+    seen_urls: set[str] = set()
+    for url in (
+        record.contact_final_url,
+        record.selected_contact_link,
+        record.homepage_final_url,
+    ):
+        if not url or url in seen_urls or not url.startswith(("https://", "http://")):
+            continue
+        seen_urls.add(url)
+        request = urllib.request.Request(  # noqa: S310 - only http(s) URLs pass the scheme guard.
+            url,
+            headers={"User-Agent": "HushLineSalesAgent/1.0 (+https://hushline.app)"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:  # noqa: S310
+                content_type = response.headers.get("content-type", "")
+                if "text/html" not in content_type.lower():
+                    continue
+                html = response.read(512_000).decode("utf-8", errors="replace")
+        except OSError:
+            continue
+        pages.append((url, html))
+    return pages
+
+
+def page_email_candidates(
+    record: ContactFormRecord,
+    timeout_seconds: float,
+) -> list[ResolvedRecipient]:
+    candidates: list[ResolvedRecipient] = []
+    seen: set[str] = set()
+    for url, page_html in fetch_candidate_email_pages(record, timeout_seconds):
+        parser = RecipientParser()
+        parser.feed(page_html)
+        for raw_address in [*parser.mailto_addresses, *parser.visible_addresses]:
+            email = normalize_email_address(raw_address)
+            if email is None or email in seen:
+                continue
+            seen.add(email)
+            candidates.append(ResolvedRecipient(email=email, source=f"public page: {url}"))
+    return candidates
+
+
+def recipient_score(record: ContactFormRecord, recipient: ResolvedRecipient) -> int:
+    local_part, domain = recipient.email.rsplit("@", 1)
+    score = 0
+    for token, weight in RECIPIENT_LOCAL_PART_WEIGHTS.items():
+        if token in local_part:
+            score += weight
+    if record.domain.removeprefix("www.").endswith(domain) or domain.endswith(
+        record.domain.removeprefix("www.")
+    ):
+        score += 25
+    if recipient.source.startswith("public page:"):
+        score += 15
+    return score
+
+
+def best_recipient_candidate(
+    record: ContactFormRecord,
+    candidates: list[ResolvedRecipient],
+) -> ResolvedRecipient | None:
+    if not candidates:
+        return None
+    ranked = sorted(
+        candidates,
+        key=lambda recipient: (recipient_score(record, recipient), recipient.email),
+        reverse=True,
+    )
+    best = ranked[0]
+    if recipient_score(record, best) <= 0:
+        return None
+    return best
+
+
+def resolve_recipient_email(
+    record: ContactFormRecord,
+    profile: CompanyProfile,
+    *,
+    recipient_override: str | None,
+    timeout_seconds: float,
+) -> ResolvedRecipient | None:
+    if recipient_override:
+        email = normalize_email_address(recipient_override)
+        if email is None:
+            raise SalesAgentError(f"Invalid recipient override: {recipient_override}")
+        return ResolvedRecipient(email=email, source="recipient override")
+
+    if bool_env_enabled(RECIPIENT_DISCOVERY_ENV, default=True):
+        candidate = best_recipient_candidate(
+            record,
+            page_email_candidates(record, timeout_seconds),
+        )
+        if candidate is not None:
+            return candidate
+
+    if profile.recipient_email and profile.recipient_source.startswith(
+        VERIFIED_RECIPIENT_SOURCE_PREFIX
+    ):
+        return ResolvedRecipient(email=profile.recipient_email, source=profile.recipient_source)
+
+    return None
 
 
 def select_next_target(
     records: list[ContactFormRecord],
     state: dict[str, Any],
-) -> tuple[ContactFormRecord, CompanyProfile]:
-    contacted = sent_organization_keys(state)
+    *,
+    recipient_override: str | None = None,
+    research_timeout_seconds: float = 4.0,
+) -> tuple[ContactFormRecord, CompanyProfile, ResolvedRecipient]:
+    attempted = attempted_organization_keys(state)
     for record in records:
         if not is_sales_candidate(record):
             continue
         profile = profile_for_record(record)
-        if profile.organization_key not in contacted:
-            return record, profile
-    raise SalesAgentError("No uncontacted sales candidates remain in the audit CSV.")
+        if profile.organization_key in attempted:
+            continue
+        recipient = resolve_recipient_email(
+            record,
+            profile,
+            recipient_override=recipient_override,
+            timeout_seconds=research_timeout_seconds,
+        )
+        if recipient is not None:
+            return record, profile, recipient
+    raise SalesAgentError("No uncontacted sales candidates with resolved recipient emails remain.")
+
+
+def bool_env_enabled(name: str, *, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def timezone_for_domain(domain: str) -> str:
@@ -511,13 +766,6 @@ def fetch_page_summary(url: str, timeout_seconds: float) -> PageSummary:
 
 def normalize_space(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
-
-
-def bool_env_enabled(name: str, *, default: bool) -> bool:
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def research_summary(record: ContactFormRecord, *, timeout_seconds: float) -> PageSummary:
@@ -648,20 +896,18 @@ def build_draft(  # noqa: PLR0913 - explicit call sites keep sales-send inputs a
     profile: CompanyProfile,
     *,
     sender: str,
-    recipient_override: str | None,
+    recipient: ResolvedRecipient,
     send_date: date,
     research_timeout_seconds: float,
 ) -> SalesDraft:
     page_summary = research_summary(record, timeout_seconds=research_timeout_seconds)
-    recipient = (
-        recipient_override or os.environ.get(RECIPIENT_OVERRIDE_ENV) or profile.recipient_email
-    ).strip()
     subject = build_subject(profile)
     body = build_body(record, profile, page_summary)
     validate_draft(subject, body)
     return SalesDraft(
         sender=sender,
-        recipient=recipient,
+        recipient=recipient.email,
+        recipient_source=recipient.source,
         subject=subject,
         body=body,
         target=record,
@@ -682,6 +928,7 @@ def persist_draft(output_dir: Path, send_date: date, draft: SalesDraft) -> Path:
         (
             f"From: {draft.sender}\n"
             f"To: {draft.recipient}\n"
+            f"Recipient source: {draft.recipient_source}\n"
             f"Subject: {draft.subject}\n"
             f"Target: {draft.target.domain} rank {draft.target.rank}\n"
             f"Target local send time: {draft.target_local_time.isoformat()}\n\n"
@@ -731,6 +978,47 @@ def send_with_mail_app(sender: str, recipient: str, subject: str, body: str) -> 
         raise SalesAgentError(f"Mail.app send failed: {detail}")
 
 
+def check_mail_app_undeliverable(recipient: str, lookback_seconds: int) -> str | None:
+    command = ["/usr/bin/osascript", "-", recipient, str(lookback_seconds)]
+    result = subprocess.run(  # noqa: S603 - fixed executable with data-only arguments.
+        command,
+        input=MAIL_APP_BOUNCE_CHECK_APPLESCRIPT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or "no Mail.app output"
+        raise SalesAgentError(f"Mail.app bounce check failed: {detail}")
+    detail = result.stdout.strip()
+    return detail or None
+
+
+def monitor_undeliverable(
+    recipient: str,
+    *,
+    monitor_seconds: int = DEFAULT_BOUNCE_MONITOR_SECONDS,
+    poll_seconds: int = DEFAULT_BOUNCE_POLL_SECONDS,
+) -> str | None:
+    if monitor_seconds <= 0:
+        return None
+
+    started_at = time_module.monotonic()
+    deadline = started_at + monitor_seconds
+    while True:
+        elapsed_seconds = max(1, int(time_module.monotonic() - started_at) + poll_seconds)
+        lookback_seconds = min(monitor_seconds + poll_seconds, elapsed_seconds)
+        detail = check_mail_app_undeliverable(recipient, lookback_seconds)
+        if detail:
+            return detail
+
+        remaining = deadline - time_module.monotonic()
+        if remaining <= 0:
+            return None
+        time_module.sleep(min(poll_seconds, remaining))
+
+
 def is_mail_app_apple_event_timeout(detail: str) -> bool:
     normalized_detail = detail.lower()
     return (
@@ -751,10 +1039,37 @@ def record_sent(
             "organization_key": draft.profile.organization_key,
             "company_name": draft.profile.company_name,
             "recipient": draft.recipient,
+            "recipient_source": draft.recipient_source,
             "subject": draft.subject,
             "draft_path": str(draft_path),
             "target_local_time": draft.target_local_time.isoformat(),
             "sent_at": datetime.now(UTC).isoformat(),
+        }
+    )
+
+
+def record_failed(
+    state: dict[str, Any],
+    draft: SalesDraft,
+    send_date: date,
+    draft_path: Path,
+    *,
+    reason: str,
+) -> None:
+    state.setdefault("failed", []).append(
+        {
+            "date": send_date.isoformat(),
+            "domain": draft.target.domain,
+            "rank": draft.target.rank,
+            "organization_key": draft.profile.organization_key,
+            "company_name": draft.profile.company_name,
+            "recipient": draft.recipient,
+            "recipient_source": draft.recipient_source,
+            "subject": draft.subject,
+            "draft_path": str(draft_path),
+            "target_local_time": draft.target_local_time.isoformat(),
+            "failed_at": datetime.now(UTC).isoformat(),
+            "reason": reason,
         }
     )
 
@@ -770,6 +1085,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--from-address")
     parser.add_argument("--recipient-override")
     parser.add_argument("--research-timeout", type=float, default=4.0)
+    parser.add_argument(
+        "--bounce-monitor-seconds",
+        type=int,
+        default=DEFAULT_BOUNCE_MONITOR_SECONDS,
+    )
     parser.add_argument("--send-when-due", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args(argv)
@@ -799,12 +1119,18 @@ def main(argv: list[str] | None = None) -> int:
     sender = sales_from_address(args.from_address)
     records = load_contact_form_records(audit_csv)
     state = load_state(args.state_file)
-    target, profile = select_next_target(records, state)
+    recipient_override = args.recipient_override or os.environ.get(RECIPIENT_OVERRIDE_ENV)
+    target, profile, recipient = select_next_target(
+        records,
+        state,
+        recipient_override=recipient_override,
+        research_timeout_seconds=args.research_timeout,
+    )
     draft = build_draft(
         target,
         profile,
         sender=sender,
-        recipient_override=args.recipient_override,
+        recipient=recipient,
         send_date=send_date,
         research_timeout_seconds=args.research_timeout,
     )
@@ -825,6 +1151,20 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     send_with_mail_app(draft.sender, draft.recipient, draft.subject, draft.body)
+    bounce_detail = monitor_undeliverable(
+        draft.recipient,
+        monitor_seconds=args.bounce_monitor_seconds,
+    )
+    if bounce_detail:
+        record_failed(
+            state,
+            draft,
+            send_date,
+            draft_path,
+            reason=bounce_detail,
+        )
+        save_state(args.state_file, state)
+        raise SalesAgentError(f"Sent message appears undeliverable: {bounce_detail}")
     record_sent(state, draft, send_date, draft_path)
     save_state(args.state_file, state)
     print(f"Sent sales email to {draft.profile.company_name} at {draft.recipient}")

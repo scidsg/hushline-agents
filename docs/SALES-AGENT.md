@@ -4,9 +4,10 @@ The sales contact agent sends one concise outreach email per day from the local
 macOS Mail app account `sales@hushline.app`.
 
 It uses the assessed contact-form audit CSV from `hushline-docs`, chooses the
-highest-ranked uncontacted commercial organization, builds a short plain-text
-email from the observed form properties and a small company profile map, and
-stores contacted-organization state under `logs/sales/`.
+highest-ranked uncontacted commercial organization with a resolved public
+recipient email, builds a short plain-text email from the observed form
+properties and a small company profile map, and stores contacted-organization
+state under `logs/sales/`.
 
 ## Schedule
 
@@ -41,6 +42,7 @@ HUSHLINE_SALES_AGENT_DOCS_REPO_DIR=/Users/scidsg/hushline-docs
 HUSHLINE_SALES_AGENT_STATE_FILE=/Users/scidsg/hushline-agents/logs/sales/sales-contact-agent-state.json
 HUSHLINE_SALES_AGENT_OUTPUT_DIR=/Users/scidsg/hushline-agents/logs/sales/drafts
 HUSHLINE_SALES_AGENT_LIVE_RESEARCH=1
+HUSHLINE_SALES_AGENT_RECIPIENT_DISCOVERY=1
 HUSHLINE_SALES_AGENT_RECIPIENT_OVERRIDE=maintainer@example.com
 ```
 
@@ -79,12 +81,30 @@ HUSHLINE_SALES_AGENT_LIVE_RESEARCH=0 \
 ```
 
 The direct runner supports `--date`, `--now`, `--state-file`, `--output-dir`,
-and `--recipient-override` for testing.
+`--recipient-override`, and `--bounce-monitor-seconds` for testing.
+
+## Recipient Resolution
+
+Before every live send, the runner searches the audited contact URL, selected
+contact link, and homepage for public `mailto:` or visible email addresses. It
+ranks sales, enterprise, business, partnership, contact, hello, and info
+mailboxes, rejects operational mailboxes such as support, abuse, security,
+legal, jobs, postmaster, and no-reply, and skips the company if it cannot find a
+credible recipient. It does not synthesize `sales@domain` addresses.
+
+## Delivery Monitoring
+
+After Mail.app accepts a send handoff, the runner monitors Mail.app for five
+minutes for delivery-failure messages that reference the recipient. If it sees
+an undeliverable signal, it records the attempt under `failed` state instead of
+`sent` and exits with an error so the operator can review the target.
 
 ## Message Guardrails
 
 - one email per day, selected from uncontacted organizations in rank order
 - no sends from anything except `sales@hushline.app`
+- no guessed recipient addresses; live sends require a resolved public email
+- five-minute Mail.app undeliverable monitoring after live sends
 - short plain text body with the observed contact-form issue, the $5/mo secure
   intake offer, and one non-threatening regulatory context sentence
 - no cliche sales phrases such as "game changer", "touch base", or "synergy"

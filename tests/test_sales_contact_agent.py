@@ -179,30 +179,115 @@ def no_live_research(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HUSHLINE_SALES_AGENT_LIVE_RESEARCH", "0")
 
 
-def test_selects_highest_ranked_uncontacted_company_and_skips_public_sector(
+def test_selects_highest_ranked_uncontacted_company_with_resolved_recipient(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runner = load_runner()
     csv_path = tmp_path / "audit.csv"
     write_audit_csv(csv_path)
 
+    def fake_resolve(
+        record: object,
+        _profile: object,
+        *,
+        recipient_override: str | None,
+        timeout_seconds: float,
+    ) -> object | None:
+        del recipient_override, timeout_seconds
+        if getattr(record, "domain") == "workers.dev":
+            return runner.ResolvedRecipient(
+                email="enterprise-sales@cloudflare.com",
+                source="public page: https://www.cloudflare.com/contact",
+            )
+        return None
+
+    monkeypatch.setattr(runner, "resolve_recipient_email", fake_resolve)
+
     records = runner.load_contact_form_records(csv_path)
-    target, profile = runner.select_next_target(records, {"sent": []})
+    target, profile, recipient = runner.select_next_target(records, {"sent": [], "failed": []})
 
-    assert target.domain == "microsoft.com"
-    assert profile.company_name == "Microsoft"
-    assert profile.recipient_email == "sales@microsoft.com"
+    assert target.domain == "workers.dev"
+    assert profile.company_name == "Cloudflare"
+    assert recipient.email == "enterprise-sales@cloudflare.com"
 
 
-def test_selection_uses_organization_state_to_avoid_duplicate_company(tmp_path: Path) -> None:
+def test_recipient_discovery_prefers_sales_mailto_over_operational_addresses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = load_runner()
+    record = runner.ContactFormRecord(
+        rank=1,
+        domain="example.com",
+        homepage_final_url="https://example.com/",
+        contact_final_url="https://example.com/contact",
+        selected_contact_link="https://example.com/contact",
+        form_action="https://example.com/contact",
+        form_method="post",
+        field_count=1,
+        required_field_count=0,
+        required_high_risk_identity="",
+        third_party_script_host_count=0,
+        third_party_script_hosts="",
+        observed_request_count_after_input=0,
+        canary_request_count=0,
+        canary_hosts="",
+        leaked_before_submit=False,
+        post_method=True,
+        no_third_party_scripts=True,
+        no_observed_pre_submit_leak=True,
+        csp_restricts_form_action=True,
+        encryption_disclosed=False,
+        privacy_respecting_tier=False,
+        hardened_tier=False,
+    )
+
+    def fake_pages(_record: object, _timeout_seconds: float) -> list[tuple[str, str]]:
+        return [
+            (
+                "https://example.com/contact",
+                '<a href="mailto:support@example.com">Support</a>'
+                '<a href="mailto:sales@example.com">Sales</a>',
+            )
+        ]
+
+    monkeypatch.setattr(runner, "fetch_candidate_email_pages", fake_pages)
+
+    assert runner.page_email_candidates(record, 0.01) == [
+        runner.ResolvedRecipient(
+            email="sales@example.com",
+            source="public page: https://example.com/contact",
+        )
+    ]
+
+
+def test_selection_uses_organization_state_to_avoid_duplicate_company(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     runner = load_runner()
     csv_path = tmp_path / "audit.csv"
     write_audit_csv(csv_path)
 
+    def fake_resolve(
+        record: object,
+        _profile: object,
+        *,
+        recipient_override: str | None,
+        timeout_seconds: float,
+    ) -> object | None:
+        del recipient_override, timeout_seconds
+        return runner.ResolvedRecipient(
+            email=f"sales@{getattr(record, 'domain')}",
+            source="recipient override",
+        )
+
+    monkeypatch.setattr(runner, "resolve_recipient_email", fake_resolve)
+
     records = runner.load_contact_form_records(csv_path)
-    target, profile = runner.select_next_target(
+    target, profile, _recipient = runner.select_next_target(
         records,
-        {"sent": [{"organization_key": "microsoft"}]},
+        {"sent": [{"organization_key": "microsoft"}], "failed": []},
     )
 
     assert target.domain == "workers.dev"
@@ -214,22 +299,27 @@ def test_draft_is_specific_short_and_mentions_price(tmp_path: Path) -> None:
     csv_path = tmp_path / "audit.csv"
     write_audit_csv(csv_path)
     records = runner.load_contact_form_records(csv_path)
-    target, profile = runner.select_next_target(records, {"sent": []})
+    target = next(record for record in records if record.domain == "workers.dev")
+    profile = runner.profile_for_record(target)
 
     draft = runner.build_draft(
         target,
         profile,
         sender="sales@hushline.app",
-        recipient_override=None,
+        recipient=runner.ResolvedRecipient(
+            email="enterprise-sales@cloudflare.com",
+            source="public page: https://www.cloudflare.com/contact",
+        ),
         send_date=date(2026, 6, 11),
         research_timeout_seconds=0.01,
     )
 
     assert draft.sender == "sales@hushline.app"
-    assert draft.recipient == "sales@microsoft.com"
+    assert draft.recipient == "enterprise-sales@cloudflare.com"
+    assert draft.recipient_source == "public page: https://www.cloudflare.com/contact"
     assert "$5/mo" in draft.body
-    assert "rank 6" in draft.body
-    assert "showed a few practical concerns: a GET-style submission path" in draft.body
+    assert "rank 88" in draft.body
+    assert "a GET-style submission path" in draft.body
     assert "Sarbanes-Oxley" in draft.body
     assert len(draft.body.split()) <= 180
     for phrase in runner.FORBIDDEN_DRAFT_PHRASES:
@@ -292,7 +382,32 @@ def test_send_with_mail_app_uses_sales_account_and_fixed_envelope(
     assert isinstance(script, str)
     assert 'tell application "Mail"' in script
     assert "repeat with mailAccount in every account" in script
+    assert "set outgoingMessage to make new outgoing message" in script
+    assert script.index("set outgoingMessage to make new outgoing message") < script.index(
+        "ignoring application responses"
+    )
     assert "ignoring application responses" in script
+
+
+def test_monitor_undeliverable_returns_bounce_signal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = load_runner()
+
+    monkeypatch.setattr(
+        runner,
+        "check_mail_app_undeliverable",
+        lambda _recipient, _lookback_seconds: "undeliverable: Delivery Status Notification",
+    )
+
+    assert (
+        runner.monitor_undeliverable(
+            "sales@example.com",
+            monitor_seconds=300,
+            poll_seconds=15,
+        )
+        == "undeliverable: Delivery Status Notification"
+    )
 
 
 def test_launchd_wrapper_dry_run_bypasses_send_window_gate() -> None:

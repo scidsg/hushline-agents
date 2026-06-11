@@ -336,8 +336,10 @@ Script: `sales/scripts/sales_contact_agent.py`
 This runner uses the assessed contact-form audit data from `hushline-docs` to send
 one outreach email per day from the local Mail.app account `sales@hushline.app`.
 It picks the highest-ranked uncontacted commercial organization, skips public-sector
-targets, avoids contacting the same organization twice when multiple domains map to
-one company, and stores state and drafts under ignored `logs/sales/`.
+targets, resolves a public recipient email instead of guessing `sales@domain`,
+avoids contacting the same organization twice when multiple domains map to one
+company, monitors Mail.app for undeliverable responses after sends, and stores state
+and drafts under ignored `logs/sales/`.
 
 The launchd wrapper runs every 15 minutes. The Python runner chooses a deterministic
 random send target between 04:00 and 09:00 in the recipient company's timezone, then
