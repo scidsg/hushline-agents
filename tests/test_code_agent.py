@@ -2871,6 +2871,48 @@ run_codex_from_prompt > {shlex.quote(str(run_log_file))} 2>&1
     assert "Safe final summary" in run_log_text
 
 
+def test_codex_output_streams_to_console_by_default(tmp_path: Path) -> None:
+    prompt_file = tmp_path / "prompt.txt"
+    output_file = tmp_path / "codex-output.txt"
+    transcript_file = tmp_path / "codex-transcript.txt"
+    run_log_file = tmp_path / "run-log.txt"
+    console_file = tmp_path / "console.txt"
+
+    prompt_file.write_text("issue prompt\n", encoding="utf-8")
+
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+REPO_DIR={shlex.quote(str(tmp_path))}
+PROMPT_FILE={shlex.quote(str(prompt_file))}
+CODEX_OUTPUT_FILE={shlex.quote(str(output_file))}
+CODEX_TRANSCRIPT_FILE={shlex.quote(str(transcript_file))}
+CODEX_MODEL=test-model
+CODEX_REASONING_EFFORT=high
+exec 3>{shlex.quote(str(console_file))}
+codex() {{
+  if [[ "$1" != "exec" ]]; then
+    return 9
+  fi
+  printf 'DEFAULT_TRANSCRIPT_LINE\\n'
+  printf 'Safe final summary\\n' > "$CODEX_OUTPUT_FILE"
+}}
+run_codex_from_prompt > {shlex.quote(str(run_log_file))} 2>&1
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+
+    transcript_text = transcript_file.read_text(encoding="utf-8")
+    run_log_text = run_log_file.read_text(encoding="utf-8")
+    console_text = console_file.read_text(encoding="utf-8")
+
+    assert "DEFAULT_TRANSCRIPT_LINE" in transcript_text
+    assert "DEFAULT_TRANSCRIPT_LINE" in console_text
+    assert "DEFAULT_TRANSCRIPT_LINE" not in run_log_text
+    assert "Safe final summary" in run_log_text
+
+
 def test_run_codex_from_prompt_reports_no_credits_without_transcript(
     tmp_path: Path,
 ) -> None:
