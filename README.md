@@ -7,8 +7,10 @@ Automation for maintaining the [Hush Line](https://github.com/scidsg/hushline) p
 
 This repository contains the code-agent issue runner, local environment bootstrap helper,
 sanitized run-log tooling, weekly cross-runner agent briefing, and Hush Line social
-launchd runners. Product code, social content assets, and historical release evidence
-remain in their owning repositories.
+launchd runners. It also owns the sales contact agent that works from the docs
+contact-form audit dataset and sends through the local Mail app. Product code,
+social content assets, and historical release evidence remain in their owning
+repositories.
 
 ## Repository Layout
 
@@ -22,6 +24,8 @@ remain in their owning repositories.
 - `social/scripts/`: launchd wrappers and agent entrypoints for the Hush Line social
   planner and publishers.
 - `social/deploy/launchd/`: LaunchAgent and LaunchDaemon templates for social jobs.
+- `sales/scripts/`: Mail.app-based sales contact runner and launchd installer.
+- `sales/deploy/launchd/`: LaunchAgent and LaunchDaemon templates for the sales job.
 - `docs/AGENT-RUNNER.md`: operational configuration and behavior.
 - `docs/SOCIAL-AGENTS.md`: social runner installation, schedules, and manual commands.
 - `docs/AGENTIC-CODE-POLICY.md`: human-review policy for agent-authored changes.
@@ -39,6 +43,7 @@ parent/
 
 Set `HUSHLINE_REPO_DIR` when the product checkout is elsewhere.
 Set `HUSHLINE_SOCIAL_REPO_DIR` when the social content checkout is elsewhere.
+Set `HUSHLINE_SALES_AGENT_DOCS_REPO_DIR` when the docs checkout is elsewhere.
 
 ## Development
 
@@ -54,6 +59,8 @@ make test
 - Runtime logs are stored under `logs/` and ignored by Git.
 - The weekly brief runner requires `HUSHLINE_WEEKLY_AGENT_REPORT_FROM` and
   `HUSHLINE_WEEKLY_AGENT_REPORT_TO`.
+- The sales contact agent refuses to send unless `HUSHLINE_SALES_AGENT_FROM` is
+  exactly `sales@hushline.app`.
 - Agent-authored product changes always require human review.
 
 ## License

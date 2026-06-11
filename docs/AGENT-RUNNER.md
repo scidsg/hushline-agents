@@ -8,6 +8,7 @@ This document tracks the current state of the repo-managed agent automation used
 | ----------------------------------------------------- | ------------------------------ | ------------------------------------------------------------- | ----------------------------------------------------------------- |
 | `scripts/code_agent.sh`                 | GitHub issue implementation    | Paused on this host; configured for 10-minute launchd cadence | issue-specific branches and PRs                                   |
 | `scripts/weekly_hushline_code_agent_report_runner.py` | Weekly local agent reporting   | Active, local Mail.app delivery and local report persistence  | configured email recipient; local `logs/weekly-agent-reports/`    |
+| `sales/scripts/sales_contact_agent.py` | Daily sales outreach from contact-form audit | Active when installed; Mail.app delivery gated by recipient-local 04:00-09:00 window | `sales@hushline.app`; local `logs/sales/` state and drafts |
 | `scripts/agent_issue_bootstrap.sh`                    | Local runtime/bootstrap helper | Active, manual helper used by issue and local workflows       | local Docker/bootstrap only                                       |
 | `scripts/open_runner_dashboard.sh`                    | Local runner dashboard         | Active as a GUI LaunchAgent at user login after reboot        | Terminal windows and local dashboard launch logs                  |
 
@@ -273,7 +274,8 @@ Every queued issue is assumed to require a real change. Once the runner claims a
 - `make`
 - `node`
 - `lsof` (optional; used for port cleanup)
-- `osascript` and a configured macOS Mail.app account for the weekly agent report runner
+- `osascript` and configured macOS Mail.app accounts for the weekly agent report runner
+  and sales contact agent
 
 ## Manual Run
 
@@ -326,6 +328,40 @@ Manual dry run:
 ```bash
 ./scripts/weekly_hushline_code_agent_report_runner.py --dry-run
 ```
+
+## Sales Contact Agent
+
+Script: `sales/scripts/sales_contact_agent.py`
+
+This runner uses the assessed contact-form audit data from `hushline-docs` to send
+one outreach email per day from the local Mail.app account `sales@hushline.app`.
+It picks the highest-ranked uncontacted commercial organization, skips public-sector
+targets, avoids contacting the same organization twice when multiple domains map to
+one company, and stores state and drafts under ignored `logs/sales/`.
+
+The launchd wrapper runs every 15 minutes. The Python runner chooses a deterministic
+random send target between 04:00 and 09:00 in the recipient company's timezone, then
+exits without sending until that target local time is due.
+
+Required env file:
+
+```bash
+HUSHLINE_SALES_AGENT_FROM=sales@hushline.app
+```
+
+Install:
+
+```bash
+./sales/scripts/install_launch_agent.sh --scope gui
+```
+
+Manual dry run:
+
+```bash
+./sales/scripts/run_sales_contact_agent_launchd.sh --dry-run
+```
+
+More detail lives in `docs/SALES-AGENT.md`.
 
 ## Runner Dashboard Windows
 
