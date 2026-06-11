@@ -12,6 +12,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOCIAL_PLIST_DIR = REPO_ROOT / "social" / "deploy" / "launchd"
+SALES_PLIST_DIR = REPO_ROOT / "sales" / "deploy" / "launchd"
 RUNNER_PLIST_DIR = REPO_ROOT / "deploy" / "launchd"
 CHECK_PREREQS_SCRIPT = REPO_ROOT / "social" / "scripts" / "check_launchd_prereqs.sh"
 GIT = shutil.which("git") or "/usr/bin/git"
@@ -151,6 +152,31 @@ def test_legacy_article_wrappers_do_not_skip_non_wednesday_dates() -> None:
 def test_social_plist_validator_accepts_launchd_templates() -> None:
     for plist_path in SOCIAL_PLIST_DIR.glob("com.hushline.social.*.plist"):
         validate_plist_path(plist_path)
+
+
+def test_sales_contact_agent_plist_runs_every_15_minutes_for_timezone_gate() -> None:
+    for plist_name in [
+        "com.hushline.sales.contact-agent.plist",
+        "com.hushline.sales.contact-agent.daemon.plist",
+    ]:
+        plist_path = SALES_PLIST_DIR / plist_name
+        validate_plist_path(plist_path)
+        plist = plistlib.loads(plist_path.read_bytes())
+
+        assert plist["Label"] == "com.hushline.sales.contact-agent"
+        assert plist["ProgramArguments"] == [
+            "__REPO_DIR__/sales/scripts/run_sales_contact_agent_launchd.sh"
+        ]
+        assert plist["StartInterval"] == 900
+        assert plist["EnvironmentVariables"]["HUSHLINE_SALES_AGENT_ENV_FILE"] == "__ENV_FILE__"
+        assert (
+            plist["EnvironmentVariables"]["HUSHLINE_SALES_AGENT_DOCS_REPO_DIR"]
+            == "__DOCS_REPO_DIR__"
+        )
+        assert plist["StandardOutPath"] == "__REPO_DIR__/logs/sales/sales-contact-agent.stdout.log"
+        assert (
+            plist["StandardErrorPath"] == "__REPO_DIR__/logs/sales/sales-contact-agent.stderr.log"
+        )
 
 
 def test_runner_dashboard_launchd_template_runs_dashboard_at_aqua_login() -> None:
