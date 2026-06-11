@@ -113,7 +113,7 @@ Every queued issue is assumed to require a real change. Once the runner claims a
     - The issue/fix prompts tell Codex to avoid local container-backed make validation by default, and to defer validation entirely to the runner when schema-affecting files are touched (`hushline/model/`, `migrations/`, `scripts/dev_data.py`, `scripts/dev_migrations.py`).
     - The fix prompt includes the current branch diff summary, the prior Codex summary, and an extracted failure signature so Codex can repair the current implementation instead of repeating a narrow patch against the same failing symptom.
     - Raw failed check output is intentionally withheld from Codex prompts because local check logs may contain sensitive operational data.
-    - Codex transcript output is captured in a temporary file for the duration of the run and is excluded from the persisted runner log; only the final Codex summary is written into the run log.
+    - Codex transcript output streams to the live console by default and is captured in a temporary file for the duration of the run. Transcript output is excluded from the persisted runner log; only the final Codex summary is written into the run log.
     - Each Codex attempt logs prompt size and pre/post worktree snapshots so clean-tree no-op runs are visible in the runner log.
 18. Run required checks in a bounded self-heal loop (max attempts configurable via `HUSHLINE_DAILY_MAX_FIX_ATTEMPTS`, default `8`):
     - Before lint/test validation, if the working tree includes schema-affecting changes (`hushline/model/`, `migrations/`, `scripts/dev_data.py`, `scripts/dev_migrations.py`), rebuild the local runtime and reseed dev data so the live stack matches the current code.
@@ -460,7 +460,7 @@ The runner now performs an SSH signing preflight immediately after configuring g
 - `HUSHLINE_DAILY_RUNNER_LOCK_DIR` (default `${TMPDIR:-/tmp}/hushline-code-agent.lock`)
 - `HUSHLINE_CODEX_MODEL` (default `gpt-5.5`)
 - `HUSHLINE_CODEX_REASONING_EFFORT` (default `high`)
-- `HUSHLINE_DAILY_VERBOSE_CODEX_OUTPUT` (default `0`; set `1` to print full Codex transcript output to the live console only, without writing it into persisted runner logs)
+- `HUSHLINE_DAILY_VERBOSE_CODEX_OUTPUT` (default `1`; set `0` to hide full Codex transcript output from the live console; transcript output is still excluded from persisted runner logs)
 - `HUSHLINE_WEEKLY_AGENT_REPORT_FROM` (required for Mail.app delivery)
 - `HUSHLINE_WEEKLY_AGENT_REPORT_TO` (required for Mail.app delivery)
 
