@@ -737,8 +737,7 @@ def target_local_datetime(send_date: date, profile: CompanyProfile) -> datetime:
 
 def within_send_window(now: datetime, target: datetime) -> bool:
     local_now = now.astimezone(target.tzinfo)
-    window_end = datetime.combine(target.date(), time(9, 0), tzinfo=target.tzinfo)
-    return target <= local_now < window_end
+    return local_now.date() == target.date() and local_now >= target
 
 
 def fetch_page_summary(url: str, timeout_seconds: float) -> PageSummary:

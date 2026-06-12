@@ -335,7 +335,11 @@ def test_send_when_due_uses_recipient_local_window() -> None:
     assert runner.within_send_window(target.astimezone(UTC), target)
     assert not runner.within_send_window((target - timedelta(minutes=1)).astimezone(UTC), target)
     late = datetime.combine(target.date(), runner.time(9, 0), tzinfo=target.tzinfo)
-    assert not runner.within_send_window(late.astimezone(UTC), target)
+    assert runner.within_send_window(late.astimezone(UTC), target)
+    next_day = datetime.combine(
+        target.date() + timedelta(days=1), runner.time(4, 0), tzinfo=target.tzinfo
+    )
+    assert not runner.within_send_window(next_day.astimezone(UTC), target)
 
 
 def test_refuses_non_sales_sender() -> None:
