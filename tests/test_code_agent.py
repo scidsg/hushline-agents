@@ -191,6 +191,26 @@ wait_for_codex_status_credit_window
     assert "unexpected-sleep" not in result.stdout
 
 
+def test_wait_for_codex_status_credit_window_proceeds_at_10_percent_remaining() -> None:
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+CODEX_STATUS_CHECK_ENABLED=1
+HUSHLINE_DAILY_CODEX_STATUS_JSON='{{"rateLimits":{{"primary":{{"usedPercent":90,"windowDurationMins":300,"resetsAt":1779683479}},"secondary":null,"rateLimitReachedType":"primary"}}}}'
+sleep() {{
+  printf 'unexpected-sleep:%s\\n' "$1"
+  return 1
+}}
+wait_for_codex_status_credit_window
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    assert "Codex /status: primary 300m window 90% used; 10% remaining" in result.stdout
+    assert "5h window still has capacity; proceeding" in result.stdout
+    assert "unexpected-sleep" not in result.stdout
+
+
 def test_wait_for_codex_status_credit_window_blocks_workspace_credit_depletion() -> None:
     shell_script = f"""
 source {shlex.quote(str(RUNNER_SCRIPT))}
@@ -288,7 +308,7 @@ fetch_codex_status_json() {{
   printf '%s\\n' "$count" > {shlex.quote(str(call_count_file))}
   if [[ "$count" == "1" ]]; then
     reset_at=$(($(date +%s) + 5))
-    printf '%s' '{{"rateLimits":{{"primary":{{"usedPercent":76,'
+    printf '%s' '{{"rateLimits":{{"primary":{{"usedPercent":91,'
     printf '%s' '"windowDurationMins":300,'
     printf '"resetsAt":%s}},"secondary":null,' "$reset_at"
     printf '%s\n' '"rateLimitReachedType":"primary"}}}}'
@@ -307,7 +327,7 @@ wait_for_codex_status_credit_window
     result = _run_bash(shell_script)
 
     assert result.returncode == 0, result.stderr
-    assert "Codex 5h remaining quota is 24%, below 25%" in result.stdout
+    assert "Codex 5h remaining quota is 9%, below 10%" in result.stdout
     assert "Codex /status: primary 300m window 7% used; 93% remaining" in result.stdout
     assert call_count_file.read_text(encoding="utf-8").strip() == "2"
     slept_seconds = int(sleep_log.read_text(encoding="utf-8").strip().split(":")[1])
@@ -331,7 +351,7 @@ fetch_codex_status_json() {{
   printf '%s\\n' "$count" > {shlex.quote(str(call_count_file))}
   if [[ "$count" == "1" ]]; then
     reset_at=$(($(date +%s) - 5))
-    printf '%s' '{{"rateLimits":{{"primary":{{"usedPercent":76,'
+    printf '%s' '{{"rateLimits":{{"primary":{{"usedPercent":91,'
     printf '%s' '"windowDurationMins":300,'
     printf '"resetsAt":%s}},"secondary":null,' "$reset_at"
     printf '%s\n' '"rateLimitReachedType":"primary"}}}}'
