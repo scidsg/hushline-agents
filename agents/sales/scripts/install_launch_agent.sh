@@ -10,7 +10,7 @@ SCOPE="gui"
 APP_USER="${SUDO_USER:-${USER}}"
 APP_UID="$(id -u "$APP_USER")"
 APP_GROUP="$(id -gn "$APP_USER")"
-APP_HOME="$(dscl . -read "/Users/$APP_USER" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+APP_HOME="$(dscl . -read "/Users/$APP_USER" NFSHomeDirectory 2>/dev/null | awk '{print $2}' || true)"
 GUI_TARGET_DIR=""
 SYSTEM_TARGET_DIR="/Library/LaunchDaemons"
 
