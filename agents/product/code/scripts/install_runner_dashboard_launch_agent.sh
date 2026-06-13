@@ -2,12 +2,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-AGENTS_REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-TEMPLATE_PATH="$AGENTS_REPO_DIR/deploy/launchd/com.hushline.runner-dashboard.plist"
+AGENTS_REPO_DIR="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+TEMPLATE_PATH="$AGENTS_REPO_DIR/agents/product/code/deploy/launchd/com.hushline.runner-dashboard.plist"
 LABEL="com.hushline.runner-dashboard"
 APP_USER="${SUDO_USER:-${USER}}"
 APP_UID="$(id -u "$APP_USER")"
-APP_HOME="$(dscl . -read "/Users/$APP_USER" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+APP_HOME="$(dscl . -read "/Users/$APP_USER" NFSHomeDirectory 2>/dev/null | awk '{print $2}' || true)"
 
 if [[ -z "$APP_HOME" ]]; then
   APP_HOME="$HOME"
