@@ -1,0 +1,23 @@
+{
+  "scripts": {
+    "check:docs-drift": "node scripts/check-docs-drift.js",
+    "check:launchd": "./scripts/check_launchd_prereqs.sh",
+    "plan:day:agent": "./scripts/agent_daily_social_planner.sh",
+    "plan:day": "node scripts/plan-day.js",
+    "plan:article:weekly": "node scripts/plan-weekly-article-post.js",
+    "plan:verified-user:weekly": "./scripts/agent_weekly_verified_user_runner.sh",
+    "publish:linkedin:daily": "./scripts/agent_daily_linkedin_publisher.sh",
+    "publish:mastodon:daily": "node scripts/publish-daily-mastodon.js",
+    "render:verified-user": "node scripts/render-verified-user-post.js",
+    "install:launch-agent": "./scripts/install_launch_agent.sh",
+    "install:launch-daemon": "sudo ./scripts/install_launch_agent.sh --scope daemon",
+    "analyze:history": "node scripts/analyze-post-history.js",
+    "test": "node --test",
+    "validate:day": "node scripts/validate-day-plan.js",
+    "validate:plan": "node scripts/validate-day-plan.js"
+  },
+  "dependencies": {
+    "puppeteer-core": "^24.39.1",
+    "qrcode": "^1.5.4"
+  }
+}

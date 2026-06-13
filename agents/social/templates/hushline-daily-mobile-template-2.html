@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hush Line Onboarding Promo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400;1,700&family=EB+Garamond:ital,wght@0,400..800;1,400..800&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+      font-family: Inter, Arial, Helvetica, sans-serif;
+      font-family: "Atkinson Hyperlegible", sans-serif;
+      font-weight: 400;
+      font-style: normal;
+    }
+
+    h1 {
+      font-family: "Atkinson Hyperlegible", sans-serif;
+      font-weight: 700;
+      font-style: normal;
+      margin: 0 0 28px 0;
+      font-size: 3.5rem;
+      line-height: 1;
+      color: #EAC7E2;
+      text-shadow: 0px 4px 24px rgba(0, 0, 0, 0.4);
+    }
+
+    p {
+      line-height: 1.4;
+      margin: 0;
+      font-size: 1.5rem;
+      line-height: 1.4;
+      font-weight: 400;
+      color: white;
+      text-shadow: 0px 4px 24px rgba(0, 0, 0, 0.4);
+    }
+
+    h1,
+    p.subtext {
+      max-width: 480px;
+    }
+
+    .canvas {
+      position: relative;
+      width: 1024px;
+      height: 768px;
+      overflow: hidden;
+      background: linear-gradient(315deg,oklch(29.252% 0.14085 303.678) 0%, oklch(39.619% 0.19033 303.615));
+    }
+
+    /* top-right angled background shapes */
+    .bg-shape-1,
+    .bg-shape-2 {
+      position: absolute;
+      width: 1420px;
+      height: 1420px;
+      border-radius: 100vw;
+      pointer-events: none;
+    }
+
+    .bg-shape-1 {
+      background: rgba(255, 255, 255, 0.14);
+      left: 580px;
+      top: -260px;
+    }
+
+    .bg-shape-2 {
+      background: rgba(255, 255, 255, 0.08);
+      left: 575px;
+      top: -160px;
+    }
+
+    .layout {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: 60% 40%;
+      width: 100%;
+      height: 100%;
+      padding: 54px 62px 42px 70px;
+      gap: 36px;
+    }
+
+    .left {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding-right: 10px;
+      padding-bottom: 15rem;
+      width: 90%;
+    }
+
+    .footer-badge {
+      position: absolute;
+      left: 72px;
+      bottom: 48px;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      color: #EAC7E2;
+      font-size: 1.25rem;
+      font-weight: 700;
+      text-shadow: 0px 4px 24px rgba(0, 0, 0, 0.4);
+    }
+
+    .footer-badge img {
+      width: 64px;
+      height: auto;
+      object-fit: contain;
+      display: block;
+    }
+
+    .phone-panel {
+      top: -1rem;
+      left: -3.5rem;
+      position: relative;
+    }
+
+    .phone-panel img {
+      width: 110%;
+      height: auto;
+      display: block;
+      border-radius: 2.5rem;
+      box-shadow: 0px 8px 36px -8px rgba(0, 0, 0, 0.6);
+      outline: 1px solid rgba(255, 255, 255, 0.3);
+    }
+  </style>
+</head>
+<body>
+  <div class="canvas">
+    <div class="bg-shape-1"></div>
+    <div class="bg-shape-2"></div>
+
+    <div class="layout">
+      <section class="left">
+        <h1 class="headline">New user onboarding, now live.</h1>
+        <p class="subtext">
+          When you sign up for a free Hush Line account, we guide
+          you through a minimal three-step process to get your
+          account up and running.
+        </p>
+      </section>
+
+      <section class="right">
+        <div class="phone-panel">
+          <img src="https://raw.githubusercontent.com/scidsg/hushline-screenshots/refs/heads/main/releases/latest/newman/auth-newman-onboarding-profile-mobile-light-fold.png" alt="Hush Line onboarding screen" />
+        </div>
+      </section>
+    </div>
+
+    <div class="footer-badge">
+      <img src="https://hushline.app/assets/img/social/logo-tips.png" alt="" />
+      <span>Sign up at hushline.app!</span>
+    </div>
+  </div>
+</body>
+</html>

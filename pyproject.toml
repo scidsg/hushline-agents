@@ -56,7 +56,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*.py" = [
+"agents/**/tests/*.py" = [
     "PLR2004",
     "S101",
     "S105",
