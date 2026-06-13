@@ -5,30 +5,24 @@
 
 Automation for maintaining the [Hush Line](https://github.com/scidsg/hushline) project.
 
-This repository contains the code-agent issue runner, local environment bootstrap helper,
-sanitized run-log tooling, weekly cross-runner agent briefing, and Hush Line social
-launchd runners. It also owns the sales contact agent that works from the docs
-contact-form audit dataset and sends through the local Mail app. Product code,
-social content assets, and historical release evidence remain in their owning
-repositories.
+This repository contains role-based Hush Line agent definitions and all agent-owned
+implementation files. Product application code and historical release evidence remain
+in their owning repositories.
 
 ## Repository Layout
 
-- `scripts/code_agent.sh`: selects eligible Hush Line issues, invokes Codex,
-  validates changes, opens pull requests, and monitors review feedback.
-- `scripts/agent_issue_bootstrap.sh`: resets and seeds the target Hush Line Docker environment.
-- `scripts/sanitize_agent_run_log.py`: removes sensitive local metadata and common
-  credential patterns from persisted logs.
-- `scripts/weekly_hushline_code_agent_report_runner.py`: builds the weekly shared-agent
-  brief from local runner logs, Codex status snapshots, and token telemetry.
-- `social/scripts/`: launchd wrappers and agent entrypoints for the Hush Line social
-  planner and publishers.
-- `social/deploy/launchd/`: LaunchAgent and LaunchDaemon templates for social jobs.
-- `sales/scripts/`: Mail.app-based sales contact runner and launchd installer.
-- `sales/deploy/launchd/`: LaunchAgent and LaunchDaemon templates for the sales job.
-- `docs/AGENT-RUNNER.md`: operational configuration and behavior.
-- `docs/SOCIAL-AGENTS.md`: social runner installation, schedules, and manual commands.
-- `docs/AGENTIC-CODE-POLICY.md`: human-review policy for agent-authored changes.
+- `agents/`: all agent roles, operating instructions, scripts, tests, docs, and deploy
+  templates owned by this repository.
+- `agents/product/code/`: Hush Line issue runner, bootstrap helper, log sanitizer,
+  runner dashboard, code-agent policy, operations docs, and tests.
+- `agents/product/reporting/`: weekly local runner reporting script and tests.
+- `agents/social/`: social agent package, launchd wrappers, Node planners/publishers,
+  templates, assets, docs, tests, and LaunchAgent/LaunchDaemon templates.
+- `agents/sales/`: sales contact agent, launchd wrappers, deploy templates, tests, and
+  sales scoped operating instructions.
+- `agents/product/AGENTS*.md`: product scoped agent roles, including accessibility,
+  QA, and security.
+- `agents/sales/AGENTS*.md`: sales scoped agent roles, including AE and SDR.
 
 ## Target Checkout
 
@@ -42,7 +36,7 @@ parent/
 ```
 
 Set `HUSHLINE_REPO_DIR` when the product checkout is elsewhere.
-Set `HUSHLINE_SOCIAL_REPO_DIR` when the social content checkout is elsewhere.
+Set `HUSHLINE_SOCIAL_REPO_DIR` when the social archive/env checkout is elsewhere.
 Set `HUSHLINE_SALES_AGENT_DOCS_REPO_DIR` when the docs checkout is elsewhere.
 
 ## Development

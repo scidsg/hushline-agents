@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.hushline.sales.contact-agent</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__REPO_DIR__/agents/sales/scripts/run_sales_contact_agent_launchd.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__REPO_DIR__</string>
+
+  <key>UserName</key>
+  <string>__USER_NAME__</string>
+
+  <key>GroupName</key>
+  <string>__GROUP_NAME__</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>__HOME_DIR__</string>
+    <key>HUSHLINE_SALES_AGENT_ENV_FILE</key>
+    <string>__ENV_FILE__</string>
+    <key>HUSHLINE_SALES_AGENT_DOCS_REPO_DIR</key>
+    <string>__DOCS_REPO_DIR__</string>
+    <key>HUSHLINE_SALES_AGENT_COMBINED_LOG_FILE</key>
+    <string>__REPO_DIR__/logs/sales/sales-contact-agent.log</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StartInterval</key>
+  <integer>900</integer>
+
+  <key>StandardOutPath</key>
+  <string>__REPO_DIR__/logs/sales/sales-contact-agent.stdout.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>__REPO_DIR__/logs/sales/sales-contact-agent.stderr.log</string>
+</dict>
+</plist>

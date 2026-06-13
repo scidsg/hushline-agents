@@ -1,0 +1,456 @@
+from __future__ import annotations
+
+import os
+import plistlib
+import shlex
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+SOCIAL_AGENT_ROOT = REPO_ROOT / "agents" / "social"
+SALES_AGENT_ROOT = REPO_ROOT / "agents" / "sales"
+PRODUCT_CODE_AGENT_ROOT = REPO_ROOT / "agents" / "product" / "code"
+SOCIAL_PLIST_DIR = SOCIAL_AGENT_ROOT / "deploy" / "launchd"
+SALES_PLIST_DIR = SALES_AGENT_ROOT / "deploy" / "launchd"
+RUNNER_PLIST_DIR = PRODUCT_CODE_AGENT_ROOT / "deploy" / "launchd"
+CHECK_PREREQS_SCRIPT = SOCIAL_AGENT_ROOT / "scripts" / "check_launchd_prereqs.sh"
+GIT = shutil.which("git") or "/usr/bin/git"
+sys.path.insert(0, str(SOCIAL_AGENT_ROOT / "scripts"))
+
+from validate_social_plists import PlistValidationError, validate_plist_path  # noqa: E402
+
+POST_AGENT_LABELS = {
+    "com.hushline.social.whistleblower-news-post-agent",
+    "com.hushline.social.hushline-feature-post-agent",
+    "com.hushline.social.hushline-verified-user-post-agent",
+}
+
+
+def test_social_launchd_templates_execute_agents_repo_scripts() -> None:
+    for plist_path in SOCIAL_PLIST_DIR.glob("com.hushline.social.*.plist"):
+        plist = plistlib.loads(plist_path.read_bytes())
+
+        program_args = plist["ProgramArguments"]
+        assert len(program_args) == 1
+        assert program_args[0].startswith("__REPO_DIR__/agents/social/scripts/")
+        assert "/hushline-social/" not in program_args[0]
+
+
+def test_social_launchd_templates_pass_social_repo_dir_and_logs() -> None:
+    for plist_path in SOCIAL_PLIST_DIR.glob("com.hushline.social.*.plist"):
+        plist = plistlib.loads(plist_path.read_bytes())
+        env = plist["EnvironmentVariables"]
+
+        assert env["HUSHLINE_SOCIAL_REPO_DIR"] == "__SOCIAL_REPO_DIR__"
+        assert env["HUSHLINE_SOCIAL_ENV_FILE"] == "__ENV_FILE__"
+        assert (
+            env["HUSHLINE_SOCIAL_COMBINED_LOG_FILE"] == "__REPO_DIR__/logs/social/social-daily.log"
+        )
+        assert plist["StandardOutPath"].startswith("__REPO_DIR__/logs/social/")
+        assert plist["StandardErrorPath"].startswith("__REPO_DIR__/logs/social/")
+
+
+def test_social_launchd_templates_use_named_post_agents() -> None:
+    labels = {
+        plistlib.loads(plist_path.read_bytes())["Label"]
+        for plist_path in SOCIAL_PLIST_DIR.glob("com.hushline.social.*.plist")
+    }
+
+    assert labels == POST_AGENT_LABELS
+
+
+def test_daily_post_agent_templates_start_at_morning_publish_window() -> None:
+    expected = {
+        "com.hushline.social.whistleblower-news-post-agent.plist": (
+            "com.hushline.social.whistleblower-news-post-agent",
+            4,
+            0,
+        ),
+        "com.hushline.social.whistleblower-news-post-agent.daemon.plist": (
+            "com.hushline.social.whistleblower-news-post-agent",
+            4,
+            0,
+        ),
+        "com.hushline.social.hushline-feature-post-agent.plist": (
+            "com.hushline.social.hushline-feature-post-agent",
+            4,
+            0,
+        ),
+        "com.hushline.social.hushline-feature-post-agent.daemon.plist": (
+            "com.hushline.social.hushline-feature-post-agent",
+            4,
+            0,
+        ),
+    }
+
+    for plist_name, (label, hour, minute) in expected.items():
+        plist = plistlib.loads((SOCIAL_PLIST_DIR / plist_name).read_bytes())
+        schedule = plist["StartCalendarInterval"]
+
+        assert plist["Label"] == label
+        assert "Weekday" not in schedule
+        assert schedule["Hour"] == hour
+        assert schedule["Minute"] == minute
+
+
+def test_verified_user_post_agent_runs_once_on_weekdays() -> None:
+    for plist_name in [
+        "com.hushline.social.hushline-verified-user-post-agent.plist",
+        "com.hushline.social.hushline-verified-user-post-agent.daemon.plist",
+    ]:
+        plist = plistlib.loads((SOCIAL_PLIST_DIR / plist_name).read_bytes())
+        schedule = plist["StartCalendarInterval"]
+
+        assert plist["Label"] == "com.hushline.social.hushline-verified-user-post-agent"
+        assert [entry["Weekday"] for entry in schedule] == [1, 2, 3, 4, 5]
+        assert {entry["Hour"] for entry in schedule} == {4}
+        assert {entry["Minute"] for entry in schedule} == {0}
+
+
+def test_post_agent_wrappers_randomize_publish_window() -> None:
+    for script_name in [
+        "run_whistleblower_news_post_agent_launchd.sh",
+        "run_hushline_feature_post_agent_launchd.sh",
+        "run_hushline_verified_user_post_agent_launchd.sh",
+    ]:
+        script = (SOCIAL_AGENT_ROOT / "scripts" / script_name).read_text(encoding="utf-8")
+
+        assert "random_post_window_target_epoch" in script
+        assert "sleep_until_post_window_target" in script
+
+
+def test_post_agent_wrappers_publish_optional_mastodon_after_linkedin() -> None:
+    for script_name in [
+        "run_whistleblower_news_post_agent_launchd.sh",
+        "run_hushline_feature_post_agent_launchd.sh",
+        "run_hushline_verified_user_post_agent_launchd.sh",
+    ]:
+        script = (SOCIAL_AGENT_ROOT / "scripts" / script_name).read_text(encoding="utf-8")
+
+        assert "social_mastodon_enabled" in script
+        assert "agent_daily_linkedin_publisher.sh" in script
+        assert "linkedin_cmd+=(--no-push)" in script
+        assert "agent_daily_mastodon_publisher.sh" in script
+
+
+def test_legacy_article_wrappers_do_not_skip_non_wednesday_dates() -> None:
+    planner = (SOCIAL_AGENT_ROOT / "scripts/run_weekly_article_launchd.sh").read_text(
+        encoding="utf-8"
+    )
+    publisher = (SOCIAL_AGENT_ROOT / "scripts/run_weekly_article_linkedin_launchd.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "skip_unless_wednesday" not in planner
+    assert "skip_unless_wednesday" not in publisher
+    assert "non-Wednesday" not in planner
+    assert "non-Wednesday" not in publisher
+    assert "HUSHLINE_SOCIAL_ARTICLE_PUBLISH_RANDOM_DELAY_SECONDS" in publisher
+
+
+def test_social_plist_validator_accepts_launchd_templates() -> None:
+    for plist_path in SOCIAL_PLIST_DIR.glob("com.hushline.social.*.plist"):
+        validate_plist_path(plist_path)
+
+
+def test_sales_contact_agent_plist_runs_every_15_minutes_for_timezone_gate() -> None:
+    for plist_name in [
+        "com.hushline.sales.contact-agent.plist",
+        "com.hushline.sales.contact-agent.daemon.plist",
+    ]:
+        plist_path = SALES_PLIST_DIR / plist_name
+        validate_plist_path(plist_path)
+        plist = plistlib.loads(plist_path.read_bytes())
+
+        assert plist["Label"] == "com.hushline.sales.contact-agent"
+        assert plist["ProgramArguments"] == [
+            "__REPO_DIR__/agents/sales/scripts/run_sales_contact_agent_launchd.sh"
+        ]
+        assert plist["StartInterval"] == 900
+        assert plist["EnvironmentVariables"]["HUSHLINE_SALES_AGENT_ENV_FILE"] == "__ENV_FILE__"
+        assert (
+            plist["EnvironmentVariables"]["HUSHLINE_SALES_AGENT_DOCS_REPO_DIR"]
+            == "__DOCS_REPO_DIR__"
+        )
+        assert plist["StandardOutPath"] == "__REPO_DIR__/logs/sales/sales-contact-agent.stdout.log"
+        assert (
+            plist["StandardErrorPath"] == "__REPO_DIR__/logs/sales/sales-contact-agent.stderr.log"
+        )
+
+
+def test_runner_dashboard_launchd_template_runs_dashboard_at_aqua_login() -> None:
+    plist_path = RUNNER_PLIST_DIR / "com.hushline.runner-dashboard.plist"
+    validate_plist_path(plist_path)
+
+    plist = plistlib.loads(plist_path.read_bytes())
+
+    assert plist["Label"] == "com.hushline.runner-dashboard"
+    assert plist["ProgramArguments"] == [
+        "/bin/bash",
+        "__REPO_DIR__/agents/product/code/scripts/open_runner_dashboard.sh",
+    ]
+    assert plist["LimitLoadToSessionType"] == "Aqua"
+    assert plist["RunAtLoad"] is True
+    assert plist["EnvironmentVariables"]["HOME"] == "__HOME_DIR__"
+    assert plist["StandardOutPath"] == "__REPO_DIR__/logs/runner-dashboard.stdout.log"
+    assert plist["StandardErrorPath"] == "__REPO_DIR__/logs/runner-dashboard.stderr.log"
+
+
+def test_runner_dashboard_tails_social_logs_from_agents_repo() -> None:
+    script = (PRODUCT_CODE_AGENT_ROOT / "scripts" / "open_runner_dashboard.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "$HOME/hushline-agents/logs/social/social-daily.log" in script
+    assert "$HOME/hushline-agents/logs/social/hushline-feature-post-agent.stdout.log" in script
+    assert "$HOME/hushline-agents/logs/social/whistleblower-news-post-agent.stdout.log" in script
+    assert (
+        "$HOME/hushline-agents/logs/social/hushline-verified-user-post-agent.stdout.log" in script
+    )
+    assert "$HOME/hushline-social/logs/" not in script
+
+
+def test_runner_dashboard_uses_one_social_log_window() -> None:
+    script = (PRODUCT_CODE_AGENT_ROOT / "scripts" / "open_runner_dashboard.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert script.count('openRunnerWindow("Social Logs"') == 1
+    assert "Social Live Log" not in script
+    assert "Social Launchd Logs" not in script
+    assert "SOCIAL_LAUNCHD_CMD" not in script
+    assert "set oneThird to" in script
+    assert "set twoThirds to" in script
+
+
+def test_social_plist_validator_rejects_unknown_tags(tmp_path: Path) -> None:
+    plist_path = tmp_path / "invalid.plist"
+    plist_path.write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.hushline.invalid</string>
+  <key>BadValue</key>
+  <foo/>
+</dict>
+</plist>
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PlistValidationError, match="unknown plist tag <foo>"):
+        validate_plist_path(plist_path)
+
+
+def test_social_plist_validator_rejects_multiple_top_level_objects(tmp_path: Path) -> None:
+    plist_path = tmp_path / "invalid.plist"
+    plist_path.write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.hushline.invalid</string>
+</dict>
+<dict>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PlistValidationError, match="expected exactly one top-level plist object"):
+        validate_plist_path(plist_path)
+
+
+def _write_required_social_scripts(social_repo: Path) -> None:
+    script_dir = social_repo / "scripts"
+    script_dir.mkdir(parents=True)
+    for script_name in [
+        "plan-weekly-article-post.js",
+        "plan-day.js",
+        "publish-daily-linkedin.js",
+        "publish-daily-mastodon.js",
+        "render-verified-user-post.js",
+    ]:
+        (script_dir / script_name).write_text("// test stub\n", encoding="utf-8")
+
+
+def _write_command_stubs(bin_dir: Path) -> None:
+    bin_dir.mkdir()
+    for command_name in ["codex", "launchctl", "node", "plutil", "swift"]:
+        command_path = bin_dir / command_name
+        command_path.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+        command_path.chmod(0o755)
+
+
+def _init_social_repo(social_repo: Path) -> None:
+    social_repo.mkdir()
+    _write_required_social_scripts(social_repo)
+    subprocess.run([GIT, "init"], cwd=social_repo, check=True, capture_output=True, text=True)
+    subprocess.run(
+        [GIT, "remote", "add", "origin", "https://github.com/scidsg/hushline-social.git"],
+        cwd=social_repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _run_prereq_checker(
+    tmp_path: Path,
+    env_text: str,
+    *,
+    owner_user: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    social_repo = tmp_path / "hushline-social"
+    env_file = social_repo / ".env.launchd"
+    bin_dir = tmp_path / "bin"
+    env = os.environ.copy()
+
+    _init_social_repo(social_repo)
+    _write_command_stubs(bin_dir)
+    env_file.write_text(env_text, encoding="utf-8")
+    env_file.chmod(0o600)
+
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+    env["HUSHLINE_SOCIAL_REPO_DIR"] = str(social_repo)
+
+    command = [
+        str(CHECK_PREREQS_SCRIPT),
+        "--scope",
+        "daemon",
+        "--env-file",
+        str(env_file),
+    ]
+    if owner_user is not None:
+        command.extend(["--owner-user", owner_user])
+
+    return subprocess.run(
+        command,
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_prereq_checker_parses_env_without_executing_shell_payload(tmp_path: Path) -> None:
+    marker = tmp_path / "env_sourced_as_root.txt"
+    env_text = "\n".join(
+        [
+            "LINKEDIN_ACCESS_TOKEN=test-token",
+            "LINKEDIN_AUTHOR_URN=urn:li:person:test",
+            "OPENAI_API_KEY=test-openai-key",
+            "HUSHLINE_SOCIAL_ARCHIVE_PUSH=0",
+            f"MALICIOUS=$(touch {shlex.quote(str(marker))})",
+        ]
+    )
+
+    result = _run_prereq_checker(tmp_path, env_text)
+
+    assert result.returncode == 0, result.stderr
+    assert "Launchd prerequisites look good for scope=daemon" in result.stdout
+    assert not marker.exists()
+
+
+def test_prereq_checker_accepts_enabled_mastodon_env(tmp_path: Path) -> None:
+    env_text = "\n".join(
+        [
+            "LINKEDIN_ACCESS_TOKEN=test-token",
+            "LINKEDIN_AUTHOR_URN=urn:li:person:test",
+            "OPENAI_API_KEY=test-openai-key",
+            "HUSHLINE_SOCIAL_ARCHIVE_PUSH=0",
+            "HUSHLINE_SOCIAL_MASTODON_ENABLED=1",
+            "MASTODON_INSTANCE_URL=https://mastodon.social",
+            "MASTODON_ACCESS_TOKEN=test-mastodon-token",
+        ]
+    )
+
+    result = _run_prereq_checker(tmp_path, env_text)
+
+    assert result.returncode == 0, result.stderr
+    assert "Launchd prerequisites look good for scope=daemon" in result.stdout
+
+
+def test_prereq_checker_rejects_enabled_mastodon_without_token(tmp_path: Path) -> None:
+    env_text = "\n".join(
+        [
+            "LINKEDIN_ACCESS_TOKEN=test-token",
+            "LINKEDIN_AUTHOR_URN=urn:li:person:test",
+            "OPENAI_API_KEY=test-openai-key",
+            "HUSHLINE_SOCIAL_ARCHIVE_PUSH=0",
+            "HUSHLINE_SOCIAL_MASTODON_ENABLED=1",
+            "MASTODON_INSTANCE_URL=https://mastodon.social",
+        ]
+    )
+
+    result = _run_prereq_checker(tmp_path, env_text)
+
+    assert result.returncode == 1
+    assert "missing required variable in" in result.stderr
+    assert "MASTODON_ACCESS_TOKEN" in result.stderr
+
+
+def test_prereq_checker_rejects_enabled_mastodon_http_instance(tmp_path: Path) -> None:
+    env_text = "\n".join(
+        [
+            "LINKEDIN_ACCESS_TOKEN=test-token",
+            "LINKEDIN_AUTHOR_URN=urn:li:person:test",
+            "OPENAI_API_KEY=test-openai-key",
+            "HUSHLINE_SOCIAL_ARCHIVE_PUSH=0",
+            "HUSHLINE_SOCIAL_MASTODON_ENABLED=1",
+            "MASTODON_INSTANCE_URL=http://mastodon.social",
+            "MASTODON_ACCESS_TOKEN=test-mastodon-token",
+        ]
+    )
+
+    result = _run_prereq_checker(tmp_path, env_text)
+
+    assert result.returncode == 1
+    assert "MASTODON_INSTANCE_URL must use https" in result.stderr
+
+
+def test_prereq_checker_rejects_non_assignment_env_syntax(tmp_path: Path) -> None:
+    marker = tmp_path / "env_command_executed.txt"
+    env_text = "\n".join(
+        [
+            "LINKEDIN_ACCESS_TOKEN=test-token",
+            "LINKEDIN_AUTHOR_URN=urn:li:person:test",
+            "OPENAI_API_KEY=test-openai-key",
+            "HUSHLINE_SOCIAL_ARCHIVE_PUSH=0",
+            f"touch {shlex.quote(str(marker))}",
+        ]
+    )
+
+    result = _run_prereq_checker(tmp_path, env_text)
+
+    assert result.returncode == 1
+    assert "unsupported env syntax" in result.stderr
+    assert not marker.exists()
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root-owned temp files cannot exercise mismatch")
+def test_prereq_checker_rejects_unexpected_daemon_env_owner(tmp_path: Path) -> None:
+    env_text = "\n".join(
+        [
+            "LINKEDIN_ACCESS_TOKEN=test-token",
+            "LINKEDIN_AUTHOR_URN=urn:li:person:test",
+            "OPENAI_API_KEY=test-openai-key",
+            "HUSHLINE_SOCIAL_ARCHIVE_PUSH=0",
+        ]
+    )
+
+    result = _run_prereq_checker(tmp_path, env_text, owner_user="root")
+
+    assert result.returncode == 1
+    assert "daemon env file must be owned by target user root" in result.stderr

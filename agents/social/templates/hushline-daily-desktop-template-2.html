@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hush Line Social Desktop Template</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400;1,700&family=EB+Garamond:ital,wght@0,400..800;1,400..800&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+      background: #dcdcdc;
+      font-family: Inter, Arial, Helvetica, sans-serif;
+      font-family: "Atkinson Hyperlegible", sans-serif;
+      font-weight: 400;
+      font-style: normal;
+    }
+
+    h1 {
+      font-family: "Atkinson Hyperlegible", sans-serif;
+      font-weight: 700;
+      font-style: normal;
+      margin: 0 0 28px 0;
+      font-size: 3.5rem;
+      line-height: 1;
+      color: #7b22c9;
+    }
+
+    p {
+      line-height: 1.4;
+      margin: 0;
+      font-size: 1.5rem;
+      line-height: 1.4;
+      font-weight: 400;
+      color: #5f5f5f;
+    }
+
+    h1,
+    p.subtext {
+      max-width: 480px;
+    }
+
+    .canvas {
+      position: relative;
+      width: 1024px;
+      height: 768px;
+      overflow: hidden;
+      background: #ffebff;
+      background: linear-gradient(90deg,rgba(255, 235, 255, 1) 0%, rgba(225, 184, 229, 1) 100%);
+    }
+
+    svg:first-of-type {
+      position: absolute;
+      left: 15%;
+      bottom: 0;
+      height: 110%;
+      width: 120%;
+      z-index: 1;
+    }
+
+    svg:last-of-type {
+      position: absolute;
+      left: -100px;
+      bottom: 0;
+      top: -100px;
+      height: 120%;
+      z-index: 0;
+    }
+
+    .layout {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: 60% 40%;
+      width: 100%;
+      height: 100%;
+      padding: 54px 62px 42px 70px;
+      gap: 36px;
+    }
+
+    .left {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding-right: 40px;
+      padding-bottom: 3rem;
+    }
+
+    .footer-badge {
+      position: absolute;
+      left: 72px;
+      bottom: 48px;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      color: #4f168a;
+      font-size: 1.25rem;
+      font-weight: 700;
+    }
+
+    .footer-badge img {
+      width: 64px;
+      height: auto;
+      object-fit: contain;
+      display: block;
+    }
+
+    .right {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+    }
+
+    .desktop-panel {
+      display: flex;
+      align-items: center;
+    }
+
+    .desktop-panel img {
+      width: 768px;
+      height: auto;
+      display: block;
+      border-radius: 8px;
+      box-shadow: 0px 12px 36px -12px rgba(0, 0, 0, 0.2);
+      outline: 1px solid rgba(0, 0, 0, 0.05);
+      position: relative;
+      right: 40px;
+    }
+  </style>
+</head>
+<body>
+  <div class="canvas">
+    <svg width="340" height="739" viewBox="0 0 340 739" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <g opacity="0.7">
+      <path d="M17.896 229.507L76.838 107.436C117.032 24.1926 211.295 -18.0558 300.179 7.3348C380.999 30.4217 437.054 103.857 438.013 187.904L443.351 655.824C444.173 727.889 382.61 784.919 310.818 778.597L114.046 761.269C43.2605 755.036 26.5717 659.017 91.1031 629.264C131.152 610.799 144.005 560.124 117.598 524.804L35.8128 415.414C-4.38724 361.645 -11.2955 289.963 17.896 229.507Z" fill="#AB63E2" fill-opacity="0.22" style="mix-blend-mode:multiply"/>
+      </g>
+    </svg>
+    <svg width="1175" height="763" viewBox="0 0 1175 763" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path opacity="0.6" d="M163.812 -45.0535L115.376 -46.8102C28.152 -49.9738 -45.6453 17.0744 -50.8362 104.202L-79.5222 585.677C-86.6078 704.602 6.55062 805.597 125.66 808.119L1064.5 828C1143.74 832.052 1198.37 749.748 1163.87 678.302L1123.75 595.214C1089.74 524.771 1009.15 489.998 934.569 513.579C851.104 539.968 762.145 493.186 736.585 409.464L698.602 285.047C672.988 201.147 597.922 142.008 510.358 136.743L355.573 127.435C307.671 124.555 268.256 88.6714 260.905 41.2493C253.414 -7.07409 212.68 -43.2811 163.812 -45.0535Z" fill="white"/>
+    </svg>
+
+
+    <div class="layout">
+      <section class="left">
+        <h1 class="headline">New user onboarding, now live.</h1>
+        <p class="subtext">
+          When you sign up for a free Hush Line account, we guide
+          you through a minimal three-step process to get your
+          account up and running.
+        </p>
+      </section>
+
+      <section class="right">
+        <div class="desktop-panel">
+          <img src="https://raw.githubusercontent.com/scidsg/hushline-screenshots/refs/heads/main/releases/latest/guest/guest-directory-verified-desktop-light-fold.png" alt="Hush Line onboarding screen" />
+        </div>
+      </section>
+    </div>
+
+    <div class="footer-badge">
+      <img src="https://hushline.app/assets/img/social/logo-tips.png" alt="" />
+      <span>Sign up at hushline.app!</span>
+    </div>
+  </div>
+</body>
+</html>

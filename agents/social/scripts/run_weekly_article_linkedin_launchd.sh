@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AGENTS_REPO_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+DEFAULT_SOCIAL_REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_DIR="${HUSHLINE_SOCIAL_REPO_DIR:-$DEFAULT_SOCIAL_REPO_DIR}"
+export HUSHLINE_SOCIAL_REPO_DIR="$REPO_DIR"
+source "$AGENTS_REPO_DIR/agents/social/scripts/lib/load-launchd-env.sh"
+source "$AGENTS_REPO_DIR/agents/social/scripts/lib/transient-retry.sh"
+LOCK_DIR="$REPO_DIR/.tmp/weekly-article-linkedin.lock"
+COMBINED_LOG_FILE="${HUSHLINE_SOCIAL_COMBINED_LOG_FILE:-$AGENTS_REPO_DIR/logs/social/social-daily.log}"
+
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+
+cleanup() {
+  rmdir "$LOCK_DIR" >/dev/null 2>&1 || true
+}
+
+setup_log_capture() {
+  mkdir -p "$(dirname "$COMBINED_LOG_FILE")"
+  exec > >(tee -a "$COMBINED_LOG_FILE")
+  exec 2> >(tee -a "$COMBINED_LOG_FILE" >&2)
+}
+
+effective_date() {
+  local previous=""
+  local arg=""
+
+  for arg in "$@"; do
+    if [[ "$previous" == "--date" ]]; then
+      printf '%s\n' "$arg"
+      return
+    fi
+    previous="$arg"
+  done
+
+  date +%Y-%m-%d
+}
+
+effective_archive_key() {
+  local previous=""
+  local arg=""
+
+  for arg in "$@"; do
+    if [[ "$previous" == "--archive-key" ]]; then
+      printf '%s\n' "$arg"
+      return
+    fi
+    previous="$arg"
+  done
+
+  effective_date "$@"
+}
+
+wait_for_article_archive() {
+  local archive_key=""
+  local archive_post_path=""
+  local attempt=1
+  local interval_seconds=""
+  local max_attempts=""
+
+  archive_key="$(effective_archive_key "$@")"
+  archive_post_path="$REPO_DIR/previous-article-posts/$archive_key/post.json"
+  interval_seconds="$(transient_retry_interval_seconds)"
+  max_attempts="$(transient_retry_max_attempts)"
+
+  while (( attempt <= max_attempts )); do
+    if [[ -f "$archive_post_path" ]]; then
+      return 0
+    fi
+
+    if (( attempt >= max_attempts )); then
+      echo "Archived weekly article post not found after $max_attempts attempts: $archive_post_path" >&2
+      return 1
+    fi
+
+    echo "Archived weekly article post is not ready yet: $archive_post_path"
+    echo "Retrying weekly article LinkedIn publish in $interval_seconds seconds (${attempt}/${max_attempts})."
+    sleep "$interval_seconds"
+    attempt=$((attempt + 1))
+  done
+}
+
+article_publish_random_delay_seconds() {
+  local value="${HUSHLINE_SOCIAL_ARTICLE_PUBLISH_RANDOM_DELAY_SECONDS:-18000}"
+  if [[ ! "$value" =~ ^[0-9]+$ ]] || (( value < 0 )); then
+    echo "HUSHLINE_SOCIAL_ARTICLE_PUBLISH_RANDOM_DELAY_SECONDS must be a non-negative integer." >&2
+    return 1
+  fi
+
+  printf '%s\n' "$value"
+}
+
+sleep_until_random_article_publish_time() {
+  local delay_seconds=""
+  local max_delay_seconds=""
+
+  if [[ -z "${HUSHLINE_SOCIAL_LAUNCHD_SCOPE:-}" && -z "${HUSHLINE_SOCIAL_ARTICLE_PUBLISH_RANDOM_DELAY_SECONDS+x}" ]]; then
+    return 0
+  fi
+
+  max_delay_seconds="$(article_publish_random_delay_seconds)"
+  if (( max_delay_seconds == 0 )); then
+    return 0
+  fi
+
+  delay_seconds=$((RANDOM % (max_delay_seconds + 1)))
+  echo "Waiting $delay_seconds seconds before publishing article post."
+  sleep "$delay_seconds"
+}
+
+run_weekly_article_linkedin_publisher() {
+  cd "$REPO_DIR"
+  "$AGENTS_REPO_DIR/agents/social/scripts/agent_daily_linkedin_publisher.sh" --date-root previous-article-posts "$@"
+}
+
+if ! mkdir -p "$REPO_DIR/.tmp"; then
+  echo "Failed to create temp directory under $REPO_DIR/.tmp" >&2
+  exit 1
+fi
+
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  echo "Weekly article LinkedIn publisher is already running. Exiting." >&2
+  exit 0
+fi
+trap cleanup EXIT
+
+load_launchd_env_file "$REPO_DIR"
+
+setup_log_capture
+echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] Starting article LinkedIn publisher wrapper."
+
+sleep_until_random_article_publish_time
+wait_for_article_archive "$@"
+
+run_with_transient_retry \
+  "Article LinkedIn publisher" \
+  run_weekly_article_linkedin_publisher \
+  "$@"
