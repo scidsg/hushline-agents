@@ -423,3 +423,58 @@ def test_launchd_wrapper_dry_run_bypasses_send_window_gate() -> None:
 
     assert "command+=(--dry-run)" in dry_run_branch
     assert "command+=(--send-when-due)" not in dry_run_branch
+
+
+def test_live_research_is_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = load_runner()
+    monkeypatch.delenv("HUSHLINE_SALES_AGENT_LIVE_RESEARCH", raising=False)
+    record = runner.ContactFormRecord(
+        rank=1,
+        domain="example.com",
+        homepage_final_url="https://example.com/",
+        contact_final_url="https://example.com/contact",
+        selected_contact_link="https://example.com/contact",
+        form_action="https://example.com/contact",
+        form_method="post",
+        field_count=1,
+        required_field_count=0,
+        required_high_risk_identity="",
+        third_party_script_host_count=0,
+        third_party_script_hosts="",
+        observed_request_count_after_input=0,
+        canary_request_count=0,
+        canary_hosts="",
+        leaked_before_submit=False,
+        post_method=True,
+        no_third_party_scripts=True,
+        no_observed_pre_submit_leak=True,
+        csp_restricts_form_action=True,
+        encryption_disclosed=False,
+        privacy_respecting_tier=False,
+        hardened_tier=False,
+    )
+
+    def fail_fetch(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("live research should be opt-in")
+
+    monkeypatch.setattr(runner, "fetch_page_summary", fail_fetch)
+
+    assert runner.research_summary(record, timeout_seconds=0.01) == runner.PageSummary()
+
+
+def test_page_fetch_rejects_private_network_targets(monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = load_runner()
+
+    def fake_getaddrinfo(*_args: object, **_kwargs: object) -> list[tuple[object, ...]]:
+        return [(None, None, None, "", ("127.0.0.1", 443))]
+
+    def fail_open(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("private network targets must not be fetched")
+
+    monkeypatch.setattr(runner.socket, "getaddrinfo", fake_getaddrinfo)
+    monkeypatch.setattr(runner.urllib.request.OpenerDirector, "open", fail_open)
+
+    assert (
+        runner.fetch_page_summary("https://example.com/", 0.01, "example.com")
+        == runner.PageSummary()
+    )
