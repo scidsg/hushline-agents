@@ -2891,7 +2891,7 @@ run_codex_from_prompt > {shlex.quote(str(run_log_file))} 2>&1
     assert "Safe final summary" in run_log_text
 
 
-def test_codex_output_streams_to_console_by_default(tmp_path: Path) -> None:
+def test_codex_output_is_hidden_from_console_by_default(tmp_path: Path) -> None:
     prompt_file = tmp_path / "prompt.txt"
     output_file = tmp_path / "codex-output.txt"
     transcript_file = tmp_path / "codex-transcript.txt"
@@ -2928,7 +2928,7 @@ run_codex_from_prompt > {shlex.quote(str(run_log_file))} 2>&1
     console_text = console_file.read_text(encoding="utf-8")
 
     assert "DEFAULT_TRANSCRIPT_LINE" in transcript_text
-    assert "DEFAULT_TRANSCRIPT_LINE" in console_text
+    assert "DEFAULT_TRANSCRIPT_LINE" not in console_text
     assert "DEFAULT_TRANSCRIPT_LINE" not in run_log_text
     assert "Safe final summary" in run_log_text
 
