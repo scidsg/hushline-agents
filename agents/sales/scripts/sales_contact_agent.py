@@ -5,13 +5,16 @@ import argparse
 import csv
 import hashlib
 import html.parser
+import ipaddress
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import tempfile
 import time as time_module
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
@@ -37,6 +40,7 @@ DEFAULT_BOUNCE_POLL_SECONDS = 15
 EMAIL_ADDRESS_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
 RECIPIENT_DISCOVERY_ENV = "HUSHLINE_SALES_AGENT_RECIPIENT_DISCOVERY"
 VERIFIED_RECIPIENT_SOURCE_PREFIX = "verified:"
+SALES_AGENT_USER_AGENT = "HushLineSalesAgent/1.0 (+https://hushline.app)"
 RECIPIENT_REJECT_LOCAL_PARTS = {
     "abuse",
     "admin",
@@ -564,6 +568,85 @@ def normalize_email_address(value: str) -> str | None:
     return normalized
 
 
+def normalized_domain_host(value: str) -> str:
+    return value.strip().rstrip(".").lower().removeprefix("www.")
+
+
+def url_host_allowed(url: str, allowed_domain: str) -> bool:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return False
+    host = normalized_domain_host(parsed.hostname)
+    domain = normalized_domain_host(allowed_domain)
+    return host == domain or host.endswith(f".{domain}")
+
+
+def host_resolves_to_public_addresses(host: str) -> bool:
+    try:
+        address_infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    except OSError:
+        return False
+    addresses = {info[4][0] for info in address_infos}
+    if not addresses:
+        return False
+    for address in addresses:
+        try:
+            ip_address = ipaddress.ip_address(address)
+        except ValueError:
+            return False
+        if not ip_address.is_global:
+            return False
+    return True
+
+
+def safe_public_url(url: str, allowed_domain: str) -> bool:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return False
+    if not url_host_allowed(url, allowed_domain):
+        return False
+    return host_resolves_to_public_addresses(parsed.hostname)
+
+
+class SameDomainPublicRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def __init__(self, allowed_domain: str) -> None:
+        self.allowed_domain = allowed_domain
+        super().__init__()
+
+    def redirect_request(  # noqa: PLR0913 - urllib redirect hook signature.
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        if not safe_public_url(newurl, self.allowed_domain):
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def open_public_same_domain_url(
+    url: str,
+    allowed_domain: str,
+    timeout_seconds: float,
+) -> Any:
+    if not safe_public_url(url, allowed_domain):
+        raise OSError("URL is not a same-domain public HTTP(S) URL")
+    request = urllib.request.Request(  # noqa: S310 - URL is validated before request creation.
+        url,
+        headers={"User-Agent": SALES_AGENT_USER_AGENT},
+    )
+    opener = urllib.request.build_opener(SameDomainPublicRedirectHandler(allowed_domain))
+    response = opener.open(request, timeout=timeout_seconds)
+    final_url = response.geturl()
+    if not safe_public_url(final_url, allowed_domain):
+        response.close()
+        raise OSError("URL redirected outside same-domain public HTTP(S) scope")
+    return response
+
+
 def fetch_candidate_email_pages(
     record: ContactFormRecord,
     timeout_seconds: float,
@@ -575,15 +658,11 @@ def fetch_candidate_email_pages(
         record.selected_contact_link,
         record.homepage_final_url,
     ):
-        if not url or url in seen_urls or not url.startswith(("https://", "http://")):
+        if not url or url in seen_urls:
             continue
         seen_urls.add(url)
-        request = urllib.request.Request(  # noqa: S310 - only http(s) URLs pass the scheme guard.
-            url,
-            headers={"User-Agent": "HushLineSalesAgent/1.0 (+https://hushline.app)"},
-        )
         try:
-            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:  # noqa: S310
+            with open_public_same_domain_url(url, record.domain, timeout_seconds) as response:
                 content_type = response.headers.get("content-type", "")
                 if "text/html" not in content_type.lower():
                     continue
@@ -740,15 +819,9 @@ def within_send_window(now: datetime, target: datetime) -> bool:
     return local_now.date() == target.date() and local_now >= target
 
 
-def fetch_page_summary(url: str, timeout_seconds: float) -> PageSummary:
-    if not url.startswith(("https://", "http://")):
-        return PageSummary()
-    request = urllib.request.Request(  # noqa: S310 - only http(s) URLs pass the scheme guard.
-        url,
-        headers={"User-Agent": "HushLineSalesAgent/1.0 (+https://hushline.app)"},
-    )
+def fetch_page_summary(url: str, timeout_seconds: float, allowed_domain: str) -> PageSummary:
     try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:  # noqa: S310
+        with open_public_same_domain_url(url, allowed_domain, timeout_seconds) as response:
             content_type = response.headers.get("content-type", "")
             if "text/html" not in content_type.lower():
                 return PageSummary()
@@ -768,9 +841,9 @@ def normalize_space(value: str) -> str:
 
 
 def research_summary(record: ContactFormRecord, *, timeout_seconds: float) -> PageSummary:
-    if not bool_env_enabled(LIVE_RESEARCH_ENV, default=True):
+    if not bool_env_enabled(LIVE_RESEARCH_ENV, default=False):
         return PageSummary()
-    return fetch_page_summary(record.homepage_final_url, timeout_seconds)
+    return fetch_page_summary(record.homepage_final_url, timeout_seconds, record.domain)
 
 
 def observed_problem_sentence(record: ContactFormRecord, profile: CompanyProfile) -> str:
