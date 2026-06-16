@@ -119,13 +119,46 @@ async function downloadFile(url, destination) {
   fs.renameSync(temporaryDestination, destination);
 }
 
+function validateManifestFilePath(file) {
+  if (typeof file !== "string" || file.length === 0) {
+    throw new Error("Screenshot manifest contains an invalid fold file path.");
+  }
+
+  if (file.includes("\0") || file.includes("\\")) {
+    throw new Error(`Screenshot manifest contains an unsafe fold file path: ${file}`);
+  }
+
+  const normalized = path.posix.normalize(file);
+  if (
+    normalized !== file ||
+    path.posix.isAbsolute(normalized) ||
+    normalized === ".." ||
+    normalized.startsWith("../")
+  ) {
+    throw new Error(`Screenshot manifest contains an unsafe fold file path: ${file}`);
+  }
+
+  return normalized;
+}
+
+function resolveUnderRoot(root, file) {
+  const destination = path.resolve(root, file);
+  const relative = path.relative(root, destination);
+
+  if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`Refusing to write screenshot outside staging directory: ${file}`);
+  }
+
+  return destination;
+}
+
 function foldFilesFromManifest(manifest) {
   const files = new Set(["manifest.json"]);
 
   for (const scene of manifest.scenes || []) {
     for (const file of scene.files || []) {
       if (file.mode === "fold") {
-        files.add(file.file);
+        files.add(validateManifestFilePath(file.file));
       }
     }
   }
@@ -197,7 +230,7 @@ async function main() {
     fs.mkdirSync(stagedDest, { recursive: true });
 
     await downloadWithConcurrency(imageFiles, async (file) => {
-      const destination = path.join(stagedDest, file);
+      const destination = resolveUnderRoot(stagedDest, file);
       fs.mkdirSync(path.dirname(destination), { recursive: true });
       await downloadFile(`${args.baseUrl}/${file}`, destination);
     });
@@ -231,8 +264,10 @@ module.exports = {
   foldFilesFromManifest,
   main,
   parseArgs,
+  resolveUnderRoot,
   runCurl,
   swapDestination,
+  validateManifestFilePath,
 };
 
 if (require.main === module) {

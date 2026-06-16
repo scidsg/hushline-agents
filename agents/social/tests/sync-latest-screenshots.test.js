@@ -76,3 +76,42 @@ test("sync-latest-screenshots stages files and preserves README.md", async () =>
     fs.rmSync(tempRoot, { force: true, recursive: true });
   }
 });
+
+test("sync-latest-screenshots rejects manifest paths that escape staging", async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "latest-sync-traversal-"));
+  const destDir = path.join(tempRoot, "releases", "latest");
+  const sourceDir = path.join(tempRoot, "source", "releases", "latest");
+  const victimPath = path.join(tempRoot, "victim.txt");
+  fs.mkdirSync(sourceDir, { recursive: true });
+  fs.writeFileSync(victimPath, "original\n");
+
+  const manifest = {
+    release: "v9.9.9",
+    capturedAt: "2026-03-27T12:00:00.000Z",
+    scenes: [
+      {
+        files: [{ file: "../../victim.txt", mode: "fold" }],
+      },
+    ],
+  };
+  fs.writeFileSync(path.join(sourceDir, "manifest.json"), JSON.stringify(manifest));
+
+  try {
+    assert.throws(
+      () => execFileSync(
+        process.execPath,
+        [scriptPath, "--base-url", `file://${sourceDir}`, "--dest", destDir],
+        {
+          cwd: REPO_ROOT,
+          encoding: "utf8",
+          stdio: "pipe",
+        },
+      ),
+      /unsafe fold file path/,
+    );
+    assert.equal(fs.readFileSync(victimPath, "utf8"), "original\n");
+    assert.equal(fs.existsSync(destDir), false);
+  } finally {
+    fs.rmSync(tempRoot, { force: true, recursive: true });
+  }
+});
