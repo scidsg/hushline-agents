@@ -7,6 +7,8 @@ const { execFileSync } = require("node:child_process");
 
 const REPO_ROOT = path.resolve(__dirname, "..");
 const plannerScriptPath = path.join(REPO_ROOT, "scripts", "agent_daily_social_planner.sh");
+const linkedinPublisherScriptPath = path.join(REPO_ROOT, "scripts", "agent_daily_linkedin_publisher.sh");
+const linkedinWrapperPath = path.join(REPO_ROOT, "scripts", "run_daily_linkedin_launchd.sh");
 const plannerWrapperPath = path.join(REPO_ROOT, "scripts", "run_daily_planner_launchd.sh");
 const updateRunReposLibPath = path.join(REPO_ROOT, "scripts", "lib", "update-run-repos.sh");
 
@@ -144,6 +146,71 @@ test("daily repo update returns failure when either checkout update fails", () =
 test("daily planner wrapper stops when repo update fails under transient retry", () => {
   const wrapper = fs.readFileSync(plannerWrapperPath, "utf8");
   assert.match(wrapper, /update_repo \|\| return \$\?/);
+});
+
+test("daily LinkedIn publisher plans a missing daily archive before publishing", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "linkedin-publisher-"));
+  const socialRepo = path.join(tempRoot, "hushline-social");
+  const agentsRepo = path.join(tempRoot, "hushline-agents");
+  const plannerStub = path.join(agentsRepo, "agents", "social", "scripts", "agent_daily_social_planner.sh");
+  const postPath = path.join(socialRepo, "previous-posts", "2026-06-17", "post.json");
+
+  fs.mkdirSync(path.dirname(plannerStub), { recursive: true });
+  fs.mkdirSync(socialRepo, { recursive: true });
+  fs.writeFileSync(
+    plannerStub,
+    [
+      "#!/usr/bin/env bash",
+      "set -euo pipefail",
+      "date_arg=''",
+      "archive_key=''",
+      "while [[ $# -gt 0 ]]; do",
+      "  case \"$1\" in",
+      "    --date) date_arg=\"$2\"; shift 2 ;;",
+      "    --archive-key) archive_key=\"$2\"; shift 2 ;;",
+      "    --no-push) shift ;;",
+      "    *) shift ;;",
+      "  esac",
+      "done",
+      "archive_key=\"${archive_key:-$date_arg}\"",
+      "mkdir -p \"$HUSHLINE_SOCIAL_REPO_DIR/previous-posts/$archive_key\"",
+      "printf '{\"slot\":\"wednesday\",\"planned_date\":\"%s\",\"social\":{\"linkedin\":\"planned\"}}\\n' \"$date_arg\" > \"$HUSHLINE_SOCIAL_REPO_DIR/previous-posts/$archive_key/post.json\"",
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+
+  const testScript = [
+    "set -euo pipefail",
+    `source ${shellQuote(linkedinPublisherScriptPath)}`,
+    `AGENTS_REPO_DIR=${shellQuote(agentsRepo)}`,
+    `REPO_DIR=${shellQuote(socialRepo)}`,
+    "export HUSHLINE_SOCIAL_REPO_DIR=\"$REPO_DIR\"",
+    "DATE_OVERRIDE=2026-06-17",
+    "ARCHIVE_KEY=2026-06-17",
+    "DATE_ROOT=previous-posts",
+    "DRY_RUN=0",
+    "ALLOW_WEEKEND=0",
+    "ensure_daily_archive_ready",
+    `test -f ${shellQuote(postPath)}`,
+    "",
+  ].join("\n");
+
+  try {
+    const output = execFileSync("bash", ["-c", testScript], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+    });
+
+    assert.match(output, /Daily archive missing before LinkedIn publish; planning it now:/);
+  } finally {
+    fs.rmSync(tempRoot, { force: true, recursive: true });
+  }
+});
+
+test("daily LinkedIn wrapper proceeds when the archive is still missing", () => {
+  const wrapper = fs.readFileSync(linkedinWrapperPath, "utf8");
+  assert.match(wrapper, /Proceeding to the daily LinkedIn publisher so it can plan the missing archive\./);
 });
 
 test("daily planner treats content format validation failures as retryable", () => {

@@ -87,8 +87,9 @@ wait_for_daily_archive() {
     fi
 
     if (( attempt >= max_attempts )); then
-      echo "Archived daily post not found after $max_attempts attempts: $archive_post_path" >&2
-      return 1
+      echo "Archived daily post not found after $max_attempts attempts: $archive_post_path"
+      echo "Proceeding to the daily LinkedIn publisher so it can plan the missing archive."
+      return 0
     fi
 
     echo "Archived daily post is not ready yet: $archive_post_path"
