@@ -56,7 +56,7 @@ archive_already_pushed() {
   archive_key="$(effective_archive_key)"
   archive_root="$(effective_archive_root)"
   archive_label="$(archive_kind_label)"
-  archive_path="$archive_root/$archive_key/post.json"
+  archive_path="$archive_root/$archive_key/linkedin-publication.json"
   remote_ref="refs/remotes/$remote/$branch"
 
   if ! git -C "$REPO_DIR" fetch --quiet "$remote" "$branch:$remote_ref"; then
@@ -65,7 +65,7 @@ archive_already_pushed() {
   fi
 
   if git -C "$REPO_DIR" cat-file -e "${remote}/${branch}:${archive_path}" 2>/dev/null; then
-    echo "$archive_label archive container $archive_key for planned date $publish_date is already present on $remote/$branch; skipping publish."
+    echo "$archive_label archive container $archive_key for planned date $publish_date already has a LinkedIn publication record on $remote/$branch; skipping publish."
     exit 0
   fi
 }
@@ -164,6 +164,39 @@ skip_if_weekend() {
   fi
 }
 
+local_archive_post_path() {
+  printf '%s\n' "$REPO_DIR/$(effective_archive_root)/$(effective_archive_key)/post.json"
+}
+
+ensure_daily_archive_ready() {
+  local archive_post_path=""
+
+  if (( DRY_RUN == 1 )) || [[ "$(effective_archive_root)" != "previous-posts" ]]; then
+    return
+  fi
+
+  archive_post_path="$(local_archive_post_path)"
+  if [[ -f "$archive_post_path" ]]; then
+    return
+  fi
+
+  echo "Daily archive missing before LinkedIn publish; planning it now: $archive_post_path"
+
+  local -a cmd=(
+    "$AGENTS_REPO_DIR/agents/social/scripts/agent_daily_social_planner.sh"
+    --date "$(effective_date)"
+    --archive-key "$(effective_archive_key)"
+    --no-push
+  )
+  (( ALLOW_WEEKEND == 1 )) && cmd+=(--allow-weekend)
+  "${cmd[@]}"
+
+  if [[ ! -f "$archive_post_path" ]]; then
+    echo "Daily planner completed but did not create archive post: $archive_post_path" >&2
+    return 1
+  fi
+}
+
 push_archive() {
   if (( NO_PUSH == 1 )) || [[ "${HUSHLINE_SOCIAL_ARCHIVE_PUSH:-1}" != "1" ]]; then
     echo "Archive push skipped."
@@ -183,6 +216,7 @@ main() {
   parse_args "$@"
   skip_if_weekend
   archive_already_pushed
+  ensure_daily_archive_ready
 
   local -a cmd=(node "$AGENTS_REPO_DIR/agents/social/scripts/publish-daily-linkedin.js")
   [[ -n "$DATE_OVERRIDE" ]] && cmd+=(--date "$DATE_OVERRIDE")
@@ -199,4 +233,6 @@ main() {
   fi
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
