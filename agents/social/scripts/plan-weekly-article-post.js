@@ -35,7 +35,9 @@ const ALLOWED_FEEDS = [
 
 const BLOCKED_SOURCE_PATTERN = /\b(fox|breitbart|gateway pundit|newsmax|oann|infowars|daily wire)\b/i;
 const ALLOWED_SOURCE_NAMES = new Set(ALLOWED_FEEDS.map((feed) => feed.source));
-const EXCLUDED_URL_PATH_PATTERN = /\/(ideas|opinion|opinions|editorial|commentisfree|commentary)\b/i;
+const EXCLUDED_URL_PATH_PATTERN = /\/(?:ideas|opinion|opinions|editorial|commentisfree|commentary)(?:[/?#]|$)/i;
+const LIVE_BLOG_URL_PATH_PATTERN = /\/(?:live|liveblog)(?:[/?#]|$)/i;
+const LIVE_BLOG_TEXT_PATTERN = /\b(as it happened|live updates?|live blog|this (?:blog|live page) is now closed|(?:blog|live page) is now closed|latest news|latest updates?)\b/i;
 
 const RELEVANCE_TERMS = [
   { pattern: /\bwhistle[-\s]?blow(?:er|ers|ing)?\b/i, weight: 14 },
@@ -138,6 +140,10 @@ const BANNED_COPY_PATTERNS = [
   {
     pattern: /\b(news|story|reporting|accountability work|retaliation cases|fraud reporting|whistleblower stories)\s+(is|are|depends|often)\b/i,
     reason: "generic lead-in instead of story-specific news",
+  },
+  {
+    pattern: /\b(as it happened|this (?:blog|live page) is now closed|(?:blog|live page) is now closed|live updates?|live blog)\b/i,
+    reason: "live-blog or closed-blog boilerplate",
   },
 ];
 
@@ -315,7 +321,11 @@ function isAllowedSource(source) {
 }
 
 function isStraightNewsArticle(article) {
-  return !EXCLUDED_URL_PATH_PATTERN.test(String(article.link || ""));
+  return !(
+    EXCLUDED_URL_PATH_PATTERN.test(String(article.link || "")) ||
+    LIVE_BLOG_URL_PATH_PATTERN.test(String(article.link || "")) ||
+    LIVE_BLOG_TEXT_PATTERN.test(`${article.title || ""} ${article.description || ""}`)
+  );
 }
 
 function existingArticleUrls({ archiveRoot = ARTICLE_ARCHIVE_ROOT } = {}) {
