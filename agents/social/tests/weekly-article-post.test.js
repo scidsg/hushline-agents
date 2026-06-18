@@ -104,6 +104,66 @@ test("rejects opinion and commentary URLs even from approved sources", () => {
   );
 });
 
+test("rejects live blogs and closed live-blog boilerplate from approved sources", () => {
+  assert.equal(
+    isStraightNewsArticle(sampleArticle({
+      description: "This blog is now closed – see our full report on the latest crisis.",
+      link: "https://www.theguardian.com/world/live/2026/jun/17/middle-east-war-latest-news-updated",
+      title: "Oil prices fall after peace deal signed – as it happened",
+    })),
+    false,
+  );
+  assert.equal(
+    isStraightNewsArticle(sampleArticle({
+      link: "https://www.bbc.com/news/live/world-123456",
+      source: "BBC News",
+      title: "Latest updates: whistleblower retaliation hearing",
+    })),
+    false,
+  );
+  assert.equal(
+    isStraightNewsArticle(sampleArticle({
+      description: "This live page is now closed. Follow our full report for more.",
+      link: "https://www.aljazeera.com/news/liveblog/2026/5/28/iran-war-live-israel-orders-mass-forced-displacement-for-all-south-lebanon",
+      source: "Al Jazeera",
+      title: "Live page: whistleblower retaliation hearing",
+    })),
+    false,
+  );
+  assert.equal(
+    isStraightNewsArticle(sampleArticle({
+      link: "https://www.cbsnews.com/news/live-nation-ticketmaster-anticompetitive-monopoly-ticketing-industry/",
+      source: "CBS News",
+      title: "Live Nation faces whistleblower-backed ticketing investigation",
+    })),
+    true,
+  );
+});
+
+test("selects a real article over a higher-scoring live blog", () => {
+  const selected = selectArticle(
+    [
+      sampleArticle({
+        description: "This blog is now closed – see our full report. Leaked documents and anonymous sources were discussed throughout the live updates.",
+        link: "https://www.theguardian.com/world/live/2026/jun/17/middle-east-war-latest-news-updated",
+        title: "Oil prices fall after peace deal signed – as it happened",
+      }),
+      sampleArticle({
+        description: "A whistleblower alleged fraud and retaliation after reporting misconduct.",
+        link: "https://www.theguardian.com/world/2026/jun/17/example-whistleblower-retaliation",
+        publishedAt: new Date("2026-06-17T16:00:00Z"),
+        title: "Whistleblower says reporting fraud led to retaliation",
+      }),
+    ],
+    { date: "2026-06-18", usedUrls: new Set() },
+  );
+
+  assert.equal(
+    selected.link,
+    "https://www.theguardian.com/world/2026/jun/17/example-whistleblower-retaliation",
+  );
+});
+
 test("builds professional article copy with the article link and Hush Line signup CTA", () => {
   const article = { ...sampleArticle(), relevanceScore: scoreArticle(sampleArticle()) };
   const post = buildPost(article, { date: "2026-06-03" });
@@ -189,6 +249,18 @@ test("article copy quality gate rejects lazy automated templates", () => {
       linkedin: "Accountability work depends on people having somewhere safer to take what they know.",
     }),
     /generic lead-in/,
+  );
+  assert.throws(
+    () => validateArticleCopy({
+      linkedin: "This blog is now closed – see our full report.",
+    }),
+    /live-blog or closed-blog boilerplate/,
+  );
+  assert.throws(
+    () => validateArticleCopy({
+      linkedin: "This live page is now closed. Follow our report.",
+    }),
+    /live-blog or closed-blog boilerplate/,
   );
 });
 
