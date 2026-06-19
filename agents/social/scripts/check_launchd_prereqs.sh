@@ -88,6 +88,7 @@ check_repo_paths() {
     "$AGENTS_REPO_DIR/agents/social/scripts/agent_daily_social_planner.sh" \
     "$AGENTS_REPO_DIR/agents/social/scripts/agent_daily_linkedin_publisher.sh" \
     "$AGENTS_REPO_DIR/agents/social/scripts/agent_daily_mastodon_publisher.sh" \
+    "$AGENTS_REPO_DIR/agents/social/scripts/agent_daily_bluesky_publisher.sh" \
     "$AGENTS_REPO_DIR/agents/social/scripts/agent_weekly_verified_user_runner.sh" \
     "$AGENTS_REPO_DIR/agents/social/scripts/agent_weekly_verified_user_linkedin_publisher.sh"; do
     if [[ ! -x "$path" ]]; then
@@ -100,6 +101,7 @@ check_repo_paths() {
     "$AGENTS_REPO_DIR/agents/social/scripts/plan-day.js" \
     "$AGENTS_REPO_DIR/agents/social/scripts/publish-daily-linkedin.js" \
     "$AGENTS_REPO_DIR/agents/social/scripts/publish-daily-mastodon.js" \
+    "$AGENTS_REPO_DIR/agents/social/scripts/publish-daily-bluesky.js" \
     "$AGENTS_REPO_DIR/agents/social/scripts/render-verified-user-post.js"; do
     if [[ ! -f "$path" ]]; then
       fail "expected social agent script: $path"
@@ -143,6 +145,24 @@ check_required_env() {
         fail "MASTODON_INSTANCE_URL must use https when HUSHLINE_SOCIAL_MASTODON_ENABLED=1"
         ;;
     esac
+  fi
+
+  if social_bluesky_enabled; then
+    for name in BLUESKY_IDENTIFIER BLUESKY_APP_PASSWORD; do
+      if [[ -z "${!name:-}" ]]; then
+        fail "missing required variable in $ENV_FILE when HUSHLINE_SOCIAL_BLUESKY_ENABLED=1: $name"
+      fi
+    done
+
+    if [[ -n "${BLUESKY_SERVICE_URL:-}" ]]; then
+      case "${BLUESKY_SERVICE_URL:-}" in
+        https://*)
+          ;;
+        *)
+          fail "BLUESKY_SERVICE_URL must use https when HUSHLINE_SOCIAL_BLUESKY_ENABLED=1"
+          ;;
+      esac
+    fi
   fi
 
   if [[ "$SCOPE" != "daemon" ]]; then

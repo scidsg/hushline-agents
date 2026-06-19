@@ -34,9 +34,9 @@ The scheduled posting agents plan and publish through one launchd job per conten
 Direct manual runs do not apply randomized timing or weekly weekday selection unless
 `HUSHLINE_SOCIAL_RANDOMIZE_POST_WINDOW=1` is set.
 
-LinkedIn is always published first. Mastodon is an optional second target; enable it
-with `HUSHLINE_SOCIAL_MASTODON_ENABLED=1`, `MASTODON_INSTANCE_URL`, and
-`MASTODON_ACCESS_TOKEN` in the launchd env file.
+LinkedIn is always published first. Mastodon and Bluesky are optional secondary
+targets. Enable them with `HUSHLINE_SOCIAL_MASTODON_ENABLED=1` and
+`HUSHLINE_SOCIAL_BLUESKY_ENABLED=1` in the launchd env file.
 
 ## Install
 
@@ -78,6 +78,13 @@ Optional Mastodon publishing env:
 - `MASTODON_INSTANCE_URL` using `https://`
 - `MASTODON_ACCESS_TOKEN`
 - `MASTODON_VISIBILITY` set to `public`, `unlisted`, `private`, or `direct`; defaults to `public`
+
+Optional Bluesky publishing env:
+
+- `HUSHLINE_SOCIAL_BLUESKY_ENABLED=1`
+- `BLUESKY_IDENTIFIER` set to the Bluesky handle or DID
+- `BLUESKY_APP_PASSWORD` set to a Bluesky app password
+- `BLUESKY_SERVICE_URL` using `https://`; defaults to `https://bsky.social`
 
 ## Manual Runs
 

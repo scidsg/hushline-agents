@@ -8,6 +8,7 @@
     "plan:verified-user:weekly": "./scripts/agent_weekly_verified_user_runner.sh",
     "publish:linkedin:daily": "./scripts/agent_daily_linkedin_publisher.sh",
     "publish:mastodon:daily": "node scripts/publish-daily-mastodon.js",
+    "publish:bluesky:daily": "node scripts/publish-daily-bluesky.js",
     "render:verified-user": "node scripts/render-verified-user-post.js",
     "install:launch-agent": "./scripts/install_launch_agent.sh",
     "install:launch-daemon": "sudo ./scripts/install_launch_agent.sh --scope daemon",

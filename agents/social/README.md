@@ -27,5 +27,6 @@ npm run check:launchd
 ./scripts/run_whistleblower_news_post_agent_launchd.sh
 ./scripts/run_hushline_feature_post_agent_launchd.sh
 ./scripts/run_hushline_verified_user_post_agent_launchd.sh
+npm run publish:bluesky:daily -- --dry-run
 sudo ./scripts/install_launch_agent.sh --scope daemon
 ```

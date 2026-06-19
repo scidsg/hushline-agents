@@ -20,8 +20,8 @@ code and related files live in this folder.
 - Hush Line verified-user post agent.
 - Manual daily post launchd wrapper.
 
-Scheduled post agents publish to LinkedIn first and optionally Mastodon second when
-enabled by launchd environment.
+Scheduled post agents publish to LinkedIn first and optionally publish to Mastodon
+and Bluesky when enabled by launchd environment.
 
 ## Responsibilities
 

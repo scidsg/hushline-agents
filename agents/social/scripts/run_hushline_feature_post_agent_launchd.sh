@@ -45,7 +45,7 @@ Usage:
 Behavior:
   - plans one Hush Line feature post using screenshots and HTML templates
   - waits until a random target in the 04:00-09:00 local post window for launchd runs
-  - publishes the archived feature post to LinkedIn, plus Mastodon when enabled
+  - publishes the archived feature post to LinkedIn, plus Mastodon and Bluesky when enabled
 EOF
         exit 0
         ;;
@@ -81,19 +81,34 @@ publish_post() {
     --archive-key "$ARCHIVE_KEY"
   )
 
-  if social_mastodon_enabled; then
+  if social_mastodon_enabled || social_bluesky_enabled; then
     linkedin_cmd+=(--no-push)
   fi
 
   "${linkedin_cmd[@]}"
 
   if social_mastodon_enabled; then
-    "$AGENTS_REPO_DIR/agents/social/scripts/agent_daily_mastodon_publisher.sh" \
+    local -a mastodon_cmd=(
+      "$AGENTS_REPO_DIR/agents/social/scripts/agent_daily_mastodon_publisher.sh"
+      --allow-weekend
+      --date "$(effective_date)"
+      --archive-key "$ARCHIVE_KEY"
+    )
+    if social_bluesky_enabled; then
+      mastodon_cmd+=(--no-push)
+    fi
+    "${mastodon_cmd[@]}"
+  else
+    echo "Mastodon publisher disabled; set HUSHLINE_SOCIAL_MASTODON_ENABLED=1 to enable it."
+  fi
+
+  if social_bluesky_enabled; then
+    "$AGENTS_REPO_DIR/agents/social/scripts/agent_daily_bluesky_publisher.sh" \
       --allow-weekend \
       --date "$(effective_date)" \
       --archive-key "$ARCHIVE_KEY"
   else
-    echo "Mastodon publisher disabled; set HUSHLINE_SOCIAL_MASTODON_ENABLED=1 to enable it."
+    echo "Bluesky publisher disabled; set HUSHLINE_SOCIAL_BLUESKY_ENABLED=1 to enable it."
   fi
 }
 
