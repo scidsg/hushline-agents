@@ -568,9 +568,10 @@ printf 'continued\\n'
     assert "Switching checkout from 'feature' to 'main' before runner work." in result.stdout
     assert "continued" in result.stdout
     calls = call_log.read_text(encoding="utf-8")
+    assert "git:fetch origin --prune" in calls
     assert "git:checkout main" in calls
-    assert "git:reset --hard" in calls
-    assert "git:clean -fd" in calls
+    assert "git:reset --hard origin/main" in calls
+    assert "git:clean -ffd" in calls
 
 
 def test_runner_preflight_discards_local_changes(
@@ -608,8 +609,47 @@ printf 'continued\\n'
     assert " M file.txt" in result.stdout
     assert "continued" in result.stdout
     calls = call_log.read_text(encoding="utf-8")
-    assert "git:reset --hard" in calls
-    assert "git:clean -fd" in calls
+    assert "git:fetch origin --prune" in calls
+    assert "git:reset --hard origin/main" in calls
+    assert "git:clean -ffd" in calls
+
+
+def test_runner_preflight_refreshes_origin_main_before_project_board_checks(
+    tmp_path: Path,
+) -> None:
+    call_log = tmp_path / "calls.txt"
+
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+git() {{
+  printf 'git:%s\\n' "$*" >> {shlex.quote(str(call_log))}
+  case "${{1-}} ${{2-}} ${{3-}}" in
+    "rev-parse --is-inside-work-tree ")
+      return 0
+      ;;
+    "symbolic-ref --quiet --short")
+      printf 'main\\n'
+      return 0
+      ;;
+    "status --porcelain ")
+      printf '?? scratch/\\n'
+      return 0
+      ;;
+  esac
+  return 0
+}}
+assert_runner_can_take_checkout
+printf 'continued\\n'
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    assert "Discarding local checkout changes before runner work." in result.stdout
+    assert "Refreshing main from origin before runner work." in result.stdout
+    calls = call_log.read_text(encoding="utf-8").splitlines()
+    assert calls.index("git:fetch origin --prune") < calls.index("git:reset --hard origin/main")
+    assert calls[-1] == "git:clean -ffd"
 
 
 def test_cleanup_resets_successful_runner_worktree_to_base_branch(tmp_path: Path) -> None:

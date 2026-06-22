@@ -613,15 +613,20 @@ assert_runner_can_take_checkout() {
     runner_status "Discarding local checkout changes before runner work."
     printf '%s\n' "$status_output"
     git reset --hard
-    git clean -fd
+    git clean -ffd
   fi
 
   if [[ "$current_branch" != "$BASE_BRANCH" ]]; then
     runner_status "Switching checkout from '${current_branch:-detached HEAD}' to '$BASE_BRANCH' before runner work."
     git checkout "$BASE_BRANCH"
     git reset --hard
-    git clean -fd
   fi
+
+  runner_status "Refreshing $BASE_BRANCH from origin before runner work."
+  git fetch origin --prune
+  git checkout "$BASE_BRANCH"
+  git reset --hard "origin/$BASE_BRANCH"
+  git clean -ffd
 }
 
 require_cmd() {
