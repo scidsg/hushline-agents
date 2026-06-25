@@ -172,6 +172,27 @@ def test_linkedin_publishers_use_publication_records_as_publish_state() -> None:
     )
 
 
+def test_verified_user_linkedin_publisher_syncs_remote_archive_before_waiting() -> None:
+    verified_publisher = (
+        SOCIAL_AGENT_ROOT / "scripts/agent_weekly_verified_user_linkedin_publisher.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "sync_remote_archive_files()" in verified_publisher
+    assert '"previous-verified-user-posts/$publish_date/post.json"' in verified_publisher
+    assert '"previous-verified-user-posts/$publish_date/social-card@2x.png"' in verified_publisher
+    assert 'git -C "$REPO_DIR" checkout --quiet "${remote}/${branch}" -- "$archive_path"' in (
+        verified_publisher
+    )
+    assert (
+        "sync_remote_archive_files"
+        in verified_publisher[
+            verified_publisher.index("while [[ ! -f") : verified_publisher.index(
+                "Timed out waiting for verified-user archive files"
+            )
+        ]
+    )
+
+
 def test_legacy_article_wrappers_do_not_skip_non_wednesday_dates() -> None:
     planner = (SOCIAL_AGENT_ROOT / "scripts/run_weekly_article_launchd.sh").read_text(
         encoding="utf-8"

@@ -214,7 +214,7 @@ function archiveKindLabel(args) {
   return "Daily archive";
 }
 
-function remoteArchivePublished(args) {
+function remoteArchivePublished(args, { execFileSyncImpl = execFileSync } = {}) {
   const archiveRootName = getRepoArchiveRootName(args);
 
   if (!archiveRootName) {
@@ -227,17 +227,22 @@ function remoteArchivePublished(args) {
   const remoteRef = `refs/remotes/${remote}/${branch}`;
 
   try {
-    execFileSync("git", ["fetch", "--quiet", remote, `${branch}:${remoteRef}`], {
+    execFileSyncImpl("git", ["fetch", "--quiet", remote, `${branch}:${remoteRef}`], {
       cwd: REPO_ROOT,
       stdio: "ignore",
     });
-    execFileSync("git", ["cat-file", "-e", `${remote}/${branch}:${publicationRecordPath}`], {
-      cwd: REPO_ROOT,
-      stdio: "ignore",
-    });
-    return { archiveRootName, branch, published: true, remote };
   } catch {
-    return { archiveRootName, branch, published: false, remote };
+    return { archiveRootName, branch, published: false, refreshFailed: true, remote };
+  }
+
+  try {
+    execFileSyncImpl("git", ["cat-file", "-e", `${remote}/${branch}:${publicationRecordPath}`], {
+      cwd: REPO_ROOT,
+      stdio: "ignore",
+    });
+    return { archiveRootName, branch, published: true, refreshFailed: false, remote };
+  } catch {
+    return { archiveRootName, branch, published: false, refreshFailed: false, remote };
   }
 }
 
@@ -464,6 +469,12 @@ async function main() {
     return;
   }
 
+  if (remotePublished.refreshFailed && !args.force) {
+    throw new Error(
+      `Failed to refresh ${remotePublished.remote}/${remotePublished.branch} before checking LinkedIn publication state.`,
+    );
+  }
+
   if (args.dryRun) {
     process.stdout.write(
       [
@@ -541,6 +552,7 @@ if (require.main === module) {
     isInactiveLinkedInVersionError,
     isRetryableLinkedInRequestError,
     previousLinkedInVersion,
+    remoteArchivePublished,
     resolveLinkedInVersionCandidates,
     withLinkedInRequestRetry,
     withLinkedInVersionFallback,
