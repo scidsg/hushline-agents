@@ -66,7 +66,7 @@ sync_remote_archive_files() {
     "previous-verified-user-posts/$publish_date/social-card@2x.png"
   )
 
-  if ! git -C "$REPO_DIR" fetch --quiet "$remote" "$branch:$remote_ref"; then
+  if ! git -C "$REPO_DIR" fetch --quiet "$remote" "$branch:$remote_ref" 2>/dev/null; then
     return
   fi
 

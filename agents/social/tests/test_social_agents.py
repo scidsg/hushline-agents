@@ -193,6 +193,27 @@ def test_verified_user_linkedin_publisher_syncs_remote_archive_before_waiting() 
     )
 
 
+def test_daily_linkedin_publisher_syncs_remote_archive_before_replanning() -> None:
+    daily_publisher = (SOCIAL_AGENT_ROOT / "scripts/agent_daily_linkedin_publisher.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "sync_remote_archive_files()" in daily_publisher
+    assert '"$archive_root/$archive_key/post.json"' in daily_publisher
+    assert '"$archive_root/$archive_key/social-card@2x.png"' in daily_publisher
+    assert 'git -C "$REPO_DIR" checkout --quiet "${remote}/${branch}" -- "$archive_path"' in (
+        daily_publisher
+    )
+    assert (
+        "sync_remote_archive_files"
+        in daily_publisher[
+            daily_publisher.index(
+                'archive_post_path="$(local_archive_post_path)"'
+            ) : daily_publisher.index('echo "Daily archive missing before LinkedIn publish')
+        ]
+    )
+
+
 def test_legacy_article_wrappers_do_not_skip_non_wednesday_dates() -> None:
     planner = (SOCIAL_AGENT_ROOT / "scripts/run_weekly_article_launchd.sh").read_text(
         encoding="utf-8"
