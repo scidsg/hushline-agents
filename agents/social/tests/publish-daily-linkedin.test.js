@@ -9,6 +9,7 @@ const REPO_ROOT = path.resolve(__dirname, "..");
 const scriptPath = path.join(REPO_ROOT, "scripts", "publish-daily-linkedin.js");
 const {
   isRetryableLinkedInRequestError,
+  remoteArchivePublished,
   resolveLinkedInVersionCandidates,
   withLinkedInRequestRetry,
   withLinkedInVersionFallback,
@@ -167,6 +168,63 @@ test("publisher reports when no archived daily post exists for the requested dat
   } finally {
     fs.rmSync(tempRoot, { force: true, recursive: true });
   }
+});
+
+test("publisher remote publication check fails closed when refresh fails", () => {
+  const calls = [];
+
+  const result = remoteArchivePublished(
+    {
+      archiveKey: "2026-03-20",
+      dateRoot: path.join(REPO_ROOT, "previous-posts"),
+    },
+    {
+      execFileSyncImpl(command, args) {
+        calls.push([command, args]);
+        throw new Error("temporary git fetch failure");
+      },
+    },
+  );
+
+  assert.deepEqual(result, {
+    archiveRootName: "previous-posts",
+    branch: "main",
+    published: false,
+    refreshFailed: true,
+    remote: "origin",
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][1][0], "fetch");
+});
+
+test("publisher remote publication check only reports unpublished after a successful refresh", () => {
+  const calls = [];
+
+  const result = remoteArchivePublished(
+    {
+      archiveKey: "2026-03-20",
+      dateRoot: path.join(REPO_ROOT, "previous-posts"),
+    },
+    {
+      execFileSyncImpl(command, args) {
+        calls.push([command, args]);
+        if (args[0] === "cat-file") {
+          throw new Error("remote publication record missing");
+        }
+      },
+    },
+  );
+
+  assert.deepEqual(result, {
+    archiveRootName: "previous-posts",
+    branch: "main",
+    published: false,
+    refreshFailed: false,
+    remote: "origin",
+  });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0][1][0], "fetch");
+  assert.equal(calls[1][1][0], "cat-file");
 });
 
 test("publisher version selection falls back to the previous month when no explicit override is set", () => {

@@ -12,6 +12,7 @@ source "$AGENTS_REPO_DIR/agents/social/scripts/lib/transient-retry.sh"
 LOCK_DIR="$REPO_DIR/.tmp/whistleblower-news-post-agent.lock"
 COMBINED_LOG_FILE="${HUSHLINE_SOCIAL_COMBINED_LOG_FILE:-$AGENTS_REPO_DIR/logs/social/social-daily.log}"
 DATE_OVERRIDE=""
+RUN_DATE=""
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 
@@ -54,6 +55,11 @@ EOF
 }
 
 effective_date() {
+  if [[ -n "$RUN_DATE" ]]; then
+    printf '%s\n' "$RUN_DATE"
+    return
+  fi
+
   if [[ -n "$DATE_OVERRIDE" ]]; then
     printf '%s\n' "$DATE_OVERRIDE"
     return
@@ -121,6 +127,7 @@ trap cleanup EXIT
 load_launchd_env_file "$REPO_DIR"
 setup_log_capture
 parse_args "$@"
+RUN_DATE="$(effective_date)"
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] Starting whistleblower-news-post-agent."
 

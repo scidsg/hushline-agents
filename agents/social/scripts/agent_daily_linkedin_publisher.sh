@@ -38,7 +38,7 @@ archive_kind_label() {
   esac
 }
 
-archive_already_pushed() {
+linkedin_already_published() {
   local publish_date=""
   local archive_key=""
   local archive_root=""
@@ -68,6 +68,37 @@ archive_already_pushed() {
     echo "$archive_label archive container $archive_key for planned date $publish_date already has a LinkedIn publication record on $remote/$branch; skipping publish."
     exit 0
   fi
+}
+
+sync_remote_archive_files() {
+  local archive_key=""
+  local archive_root=""
+  local remote="${HUSHLINE_SOCIAL_ARCHIVE_REMOTE:-origin}"
+  local branch="${HUSHLINE_SOCIAL_ARCHIVE_BRANCH:-main}"
+  local remote_ref=""
+  local archive_path=""
+  local archive_file=""
+  local -a archive_files=()
+
+  archive_key="$(effective_archive_key)"
+  archive_root="$(effective_archive_root)"
+  remote_ref="refs/remotes/$remote/$branch"
+  archive_files=(
+    "$archive_root/$archive_key/post.json"
+    "$archive_root/$archive_key/social-card@2x.png"
+  )
+
+  if ! git -C "$REPO_DIR" fetch --quiet "$remote" "$branch:$remote_ref" 2>/dev/null; then
+    return
+  fi
+
+  for archive_path in "${archive_files[@]}"; do
+    if git -C "$REPO_DIR" cat-file -e "${remote}/${branch}:${archive_path}" 2>/dev/null; then
+      archive_file="$REPO_DIR/$archive_path"
+      mkdir -p "$(dirname "$archive_file")"
+      git -C "$REPO_DIR" checkout --quiet "${remote}/${branch}" -- "$archive_path"
+    fi
+  done
 }
 
 parse_args() {
@@ -176,6 +207,7 @@ ensure_daily_archive_ready() {
   fi
 
   archive_post_path="$(local_archive_post_path)"
+  sync_remote_archive_files
   if [[ -f "$archive_post_path" ]]; then
     return
   fi
@@ -215,7 +247,7 @@ push_archive() {
 main() {
   parse_args "$@"
   skip_if_weekend
-  archive_already_pushed
+  linkedin_already_published
   ensure_daily_archive_ready
 
   local -a cmd=(node "$AGENTS_REPO_DIR/agents/social/scripts/publish-daily-linkedin.js")

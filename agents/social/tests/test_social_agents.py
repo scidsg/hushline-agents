@@ -123,6 +123,18 @@ def test_post_agent_wrappers_randomize_publish_window() -> None:
         assert "sleep_until_post_window_target" in script
 
 
+def test_post_agent_wrappers_pin_run_date_before_random_wait() -> None:
+    for script_name in [
+        "run_whistleblower_news_post_agent_launchd.sh",
+        "run_hushline_feature_post_agent_launchd.sh",
+        "run_hushline_verified_user_post_agent_launchd.sh",
+    ]:
+        script = (SOCIAL_AGENT_ROOT / "scripts" / script_name).read_text(encoding="utf-8")
+
+        assert 'RUN_DATE="$(effective_date)"' in script
+        assert 'if [[ -n "$RUN_DATE" ]]; then' in script
+
+
 def test_post_agent_wrappers_publish_optional_secondary_platforms_after_linkedin() -> None:
     for script_name in [
         "run_whistleblower_news_post_agent_launchd.sh",
@@ -138,6 +150,68 @@ def test_post_agent_wrappers_publish_optional_secondary_platforms_after_linkedin
         assert "agent_daily_mastodon_publisher.sh" in script
         assert "mastodon_cmd+=(--no-push)" in script
         assert "agent_daily_bluesky_publisher.sh" in script
+
+
+def test_linkedin_publishers_use_publication_records_as_publish_state() -> None:
+    daily_publisher = (SOCIAL_AGENT_ROOT / "scripts/agent_daily_linkedin_publisher.sh").read_text(
+        encoding="utf-8"
+    )
+    verified_publisher = (
+        SOCIAL_AGENT_ROOT / "scripts/agent_weekly_verified_user_linkedin_publisher.sh"
+    ).read_text(encoding="utf-8")
+
+    assert 'archive_path="$archive_root/$archive_key/linkedin-publication.json"' in daily_publisher
+    assert 'archive_path="$archive_root/$archive_key/post.json"' not in daily_publisher
+    assert (
+        'archive_path="previous-verified-user-posts/$publish_date/linkedin-publication.json"'
+        in verified_publisher
+    )
+    assert (
+        'archive_path="previous-verified-user-posts/$publish_date/post.json"'
+        not in verified_publisher
+    )
+
+
+def test_verified_user_linkedin_publisher_syncs_remote_archive_before_waiting() -> None:
+    verified_publisher = (
+        SOCIAL_AGENT_ROOT / "scripts/agent_weekly_verified_user_linkedin_publisher.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "sync_remote_archive_files()" in verified_publisher
+    assert '"previous-verified-user-posts/$publish_date/post.json"' in verified_publisher
+    assert '"previous-verified-user-posts/$publish_date/social-card@2x.png"' in verified_publisher
+    assert 'git -C "$REPO_DIR" checkout --quiet "${remote}/${branch}" -- "$archive_path"' in (
+        verified_publisher
+    )
+    assert (
+        "sync_remote_archive_files"
+        in verified_publisher[
+            verified_publisher.index("while [[ ! -f") : verified_publisher.index(
+                "Timed out waiting for verified-user archive files"
+            )
+        ]
+    )
+
+
+def test_daily_linkedin_publisher_syncs_remote_archive_before_replanning() -> None:
+    daily_publisher = (SOCIAL_AGENT_ROOT / "scripts/agent_daily_linkedin_publisher.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "sync_remote_archive_files()" in daily_publisher
+    assert '"$archive_root/$archive_key/post.json"' in daily_publisher
+    assert '"$archive_root/$archive_key/social-card@2x.png"' in daily_publisher
+    assert 'git -C "$REPO_DIR" checkout --quiet "${remote}/${branch}" -- "$archive_path"' in (
+        daily_publisher
+    )
+    assert (
+        "sync_remote_archive_files"
+        in daily_publisher[
+            daily_publisher.index(
+                'archive_post_path="$(local_archive_post_path)"'
+            ) : daily_publisher.index('echo "Daily archive missing before LinkedIn publish')
+        ]
+    )
 
 
 def test_legacy_article_wrappers_do_not_skip_non_wednesday_dates() -> None:
