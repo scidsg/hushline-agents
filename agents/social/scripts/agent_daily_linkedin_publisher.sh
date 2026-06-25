@@ -38,7 +38,7 @@ archive_kind_label() {
   esac
 }
 
-archive_already_pushed() {
+linkedin_already_published() {
   local publish_date=""
   local archive_key=""
   local archive_root=""
@@ -215,7 +215,7 @@ push_archive() {
 main() {
   parse_args "$@"
   skip_if_weekend
-  archive_already_pushed
+  linkedin_already_published
   ensure_daily_archive_ready
 
   local -a cmd=(node "$AGENTS_REPO_DIR/agents/social/scripts/publish-daily-linkedin.js")

@@ -24,7 +24,7 @@ require_positive_integer() {
   fi
 }
 
-archive_already_pushed() {
+linkedin_already_published() {
   local publish_date=""
   local remote="${HUSHLINE_SOCIAL_ARCHIVE_REMOTE:-origin}"
   local branch="${HUSHLINE_SOCIAL_ARCHIVE_BRANCH:-main}"
@@ -36,7 +36,7 @@ archive_already_pushed() {
   fi
 
   publish_date="$(effective_date)"
-  archive_path="previous-verified-user-posts/$publish_date/post.json"
+  archive_path="previous-verified-user-posts/$publish_date/linkedin-publication.json"
   remote_ref="refs/remotes/$remote/$branch"
 
   if ! git -C "$REPO_DIR" fetch --quiet "$remote" "$branch:$remote_ref"; then
@@ -45,7 +45,7 @@ archive_already_pushed() {
   fi
 
   if git -C "$REPO_DIR" cat-file -e "${remote}/${branch}:${archive_path}" 2>/dev/null; then
-    echo "Verified-user archive for $publish_date is already present on $remote/$branch; skipping publish."
+    echo "Verified-user archive for $publish_date already has a LinkedIn publication record on $remote/$branch; skipping publish."
     exit 0
   fi
 }
@@ -142,7 +142,7 @@ main() {
   parse_args "$@"
   require_positive_integer "$WAIT_SECONDS" "HUSHLINE_SOCIAL_VERIFIED_USER_PUBLISH_WAIT_SECONDS"
   require_positive_integer "$WAIT_INTERVAL_SECONDS" "HUSHLINE_SOCIAL_VERIFIED_USER_PUBLISH_WAIT_INTERVAL_SECONDS"
-  archive_already_pushed
+  linkedin_already_published
   wait_for_archive
 
   local -a cmd=(node "$AGENTS_REPO_DIR/agents/social/scripts/publish-daily-linkedin.js" --date-root previous-verified-user-posts --allow-weekend)

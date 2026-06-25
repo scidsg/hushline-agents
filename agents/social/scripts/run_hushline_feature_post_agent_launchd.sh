@@ -15,6 +15,7 @@ COMBINED_LOG_FILE="${HUSHLINE_SOCIAL_COMBINED_LOG_FILE:-$AGENTS_REPO_DIR/logs/so
 AUTO_GIT_PULL="${HUSHLINE_SOCIAL_GIT_PULL:-1}"
 AUTO_GIT_CLEAN="${HUSHLINE_SOCIAL_GIT_CLEAN:-1}"
 DATE_OVERRIDE=""
+RUN_DATE=""
 ARCHIVE_KEY=""
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
@@ -58,6 +59,11 @@ EOF
 }
 
 effective_date() {
+  if [[ -n "$RUN_DATE" ]]; then
+    printf '%s\n' "$RUN_DATE"
+    return
+  fi
+
   if [[ -n "$DATE_OVERRIDE" ]]; then
     printf '%s\n' "$DATE_OVERRIDE"
     return
@@ -126,7 +132,8 @@ trap cleanup EXIT
 load_launchd_env_file "$REPO_DIR"
 setup_log_capture
 parse_args "$@"
-ARCHIVE_KEY="$(effective_date)"
+RUN_DATE="$(effective_date)"
+ARCHIVE_KEY="$RUN_DATE"
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] Starting hushline-feature-post-agent."
 

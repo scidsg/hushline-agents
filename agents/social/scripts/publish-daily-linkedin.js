@@ -224,7 +224,6 @@ function remoteArchivePublished(args) {
   const remote = process.env.HUSHLINE_SOCIAL_ARCHIVE_REMOTE || "origin";
   const branch = process.env.HUSHLINE_SOCIAL_ARCHIVE_BRANCH || "main";
   const publicationRecordPath = `${archiveRootName}/${args.archiveKey}/linkedin-publication.json`;
-  const legacyArchivePath = `${archiveRootName}/${args.archiveKey}/post.json`;
   const remoteRef = `refs/remotes/${remote}/${branch}`;
 
   try {
@@ -238,15 +237,7 @@ function remoteArchivePublished(args) {
     });
     return { archiveRootName, branch, published: true, remote };
   } catch {
-    try {
-      execFileSync("git", ["cat-file", "-e", `${remote}/${branch}:${legacyArchivePath}`], {
-        cwd: REPO_ROOT,
-        stdio: "ignore",
-      });
-      return { archiveRootName, branch, published: true, remote };
-    } catch {
-      return { archiveRootName, branch, published: false, remote };
-    }
+    return { archiveRootName, branch, published: false, remote };
   }
 }
 
