@@ -153,9 +153,9 @@ def test_post_agent_wrappers_publish_optional_secondary_platforms_after_linkedin
 
 
 def test_linkedin_publishers_use_publication_records_as_publish_state() -> None:
-    daily_publisher = (
-        SOCIAL_AGENT_ROOT / "scripts/agent_daily_linkedin_publisher.sh"
-    ).read_text(encoding="utf-8")
+    daily_publisher = (SOCIAL_AGENT_ROOT / "scripts/agent_daily_linkedin_publisher.sh").read_text(
+        encoding="utf-8"
+    )
     verified_publisher = (
         SOCIAL_AGENT_ROOT / "scripts/agent_weekly_verified_user_linkedin_publisher.sh"
     ).read_text(encoding="utf-8")
@@ -166,7 +166,10 @@ def test_linkedin_publishers_use_publication_records_as_publish_state() -> None:
         'archive_path="previous-verified-user-posts/$publish_date/linkedin-publication.json"'
         in verified_publisher
     )
-    assert 'archive_path="previous-verified-user-posts/$publish_date/post.json"' not in verified_publisher
+    assert (
+        'archive_path="previous-verified-user-posts/$publish_date/post.json"'
+        not in verified_publisher
+    )
 
 
 def test_legacy_article_wrappers_do_not_skip_non_wednesday_dates() -> None:
