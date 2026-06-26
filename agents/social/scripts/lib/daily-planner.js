@@ -1335,6 +1335,32 @@ function loadArchiveHistory(currentArchiveKey) {
     .filter(Boolean);
 }
 
+function mergeArchiveHistory(snapshotHistory = [], liveHistory = []) {
+  const entriesByArchiveKey = new Map();
+
+  for (const entry of [...snapshotHistory, ...liveHistory]) {
+    if (!entry || !entry.archive_key) {
+      continue;
+    }
+
+    entriesByArchiveKey.set(entry.archive_key, entry);
+  }
+
+  return Array.from(entriesByArchiveKey.values())
+    .sort((left, right) => compareArchiveKeys(left.archive_key, right.archive_key));
+}
+
+function refreshDailyContextArchiveHistory(context, archiveKey) {
+  return {
+    ...context,
+    archive_key: archiveKey,
+    recent_archive_history: mergeArchiveHistory(
+      context.recent_archive_history || [],
+      loadArchiveHistory(archiveKey),
+    ),
+  };
+}
+
 function listDailyTemplateNames() {
   return fs.readdirSync(TEMPLATES_DIR)
     .filter((name) => /^hushline-daily-.*\.html$/.test(name))
@@ -1768,6 +1794,7 @@ function buildDailyContext(args) {
   );
 
   return {
+    archive_key: args.archiveKey,
     audience_docs: planningContext.audience_docs,
     candidate_screenshots: selectedCandidates,
     content_format_selection: contentFormatSelection,
@@ -2366,8 +2393,11 @@ module.exports = {
   getContentFormat,
   getEditorialAudience,
   inferTopicFamily,
+  loadArchiveHistory,
   rankEditorialIntents,
+  refreshDailyContextArchiveHistory,
   loadSavedDailyContext,
+  mergeArchiveHistory,
   parseArgs,
   planDay,
   renderDailyPlan,

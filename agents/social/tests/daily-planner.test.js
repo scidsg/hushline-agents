@@ -24,6 +24,7 @@ const {
   parseArgs,
   planDay,
   rankEditorialIntents,
+  refreshDailyContextArchiveHistory,
   scoreEditorialCritic,
   selectCandidateShortlist,
   summarizeScreenshotRotation,
@@ -212,6 +213,81 @@ test("loadSavedDailyContext returns the archived context for validation reruns",
     assert.deepEqual(loadSavedDailyContext(archiveKey), savedContext);
   } finally {
     fs.rmSync(archiveDir, { force: true, recursive: true });
+  }
+});
+
+test("refreshDailyContextArchiveHistory merges newer live archive history before validation", () => {
+  const archiveKey = "2099-03-20-99";
+  const liveArchiveKey = "2099-03-19";
+  const liveArchiveDir = path.join(DAILY_POSTS_ROOT, liveArchiveKey);
+  const savedContext = buildContext({
+    candidate_screenshots: [
+      {
+        audience_scope: "recipient-shared",
+        concept_key: "conversation-thread",
+        content_key: "auth-artvandelay-conversation-thread",
+        copy_brief: "Write for recipient teams following up with sources.",
+        file: "artvandelay/auth-artvandelay-conversation-thread-mobile-light-fold.png",
+        matched_pull_requests: [],
+        topic_family: "conversation-thread",
+        theme: "light",
+        title: "Conversation Thread",
+        viewport: "mobile",
+      },
+    ],
+    date: "2099-03-20",
+    editorial_intent: {
+      ...buildContext().editorial_intent,
+      audience_scope: "recipient-shared",
+    },
+    recent_archive_history: [],
+    slot: {
+      planned_date: "2099-03-20",
+      slot: "friday",
+    },
+  });
+
+  fs.mkdirSync(liveArchiveDir, { recursive: true });
+
+  try {
+    fs.writeFileSync(path.join(liveArchiveDir, "post.json"), JSON.stringify({
+      content_key: "auth-newman-conversation-thread",
+      headline: "Keep follow-up in the conversation thread",
+      social: {
+        linkedin: "Conversation thread copy.",
+      },
+      topic_family: "conversation-thread",
+    }, null, 2));
+
+    const refreshedContext = refreshDailyContextArchiveHistory(savedContext, archiveKey);
+
+    assert.equal(refreshedContext.recent_archive_history.length, 1);
+    assert.equal(refreshedContext.recent_archive_history[0].archive_key, liveArchiveKey);
+    assert.throws(
+      () => validatePlan(
+        buildModelPlan({
+          date: "2099-03-20",
+          post: {
+            ...buildModelPlan().post,
+            audience_scope: "recipient-shared",
+            concept_key: "conversation-thread",
+            content_key: "auth-artvandelay-conversation-thread",
+            planned_date: "2099-03-20",
+            screenshot_file: "artvandelay/auth-artvandelay-conversation-thread-mobile-light-fold.png",
+            social: {
+              bluesky: "Use a thread before replying to a source.",
+              linkedin: "Use a thread before replying to a source.",
+              mastodon: "Use a thread before replying to a source.",
+            },
+            topic_family: "conversation-thread",
+          },
+        }),
+        refreshedContext,
+      ),
+      /uses saturated topic family conversation-thread/,
+    );
+  } finally {
+    fs.rmSync(liveArchiveDir, { force: true, recursive: true });
   }
 });
 
