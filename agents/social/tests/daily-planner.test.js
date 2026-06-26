@@ -218,7 +218,7 @@ test("loadSavedDailyContext returns the archived context for validation reruns",
 
 test("refreshDailyContextArchiveHistory merges newer live archive history before validation", () => {
   const archiveKey = "2099-03-20-99";
-  const liveArchiveKey = "2099-03-19";
+  const liveArchiveKey = "2099-03-20-98";
   const liveArchiveDir = path.join(DAILY_POSTS_ROOT, liveArchiveKey);
   const savedContext = buildContext({
     candidate_screenshots: [
