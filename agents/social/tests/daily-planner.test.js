@@ -16,6 +16,7 @@ const {
   filterCandidatesForEditorialIntent,
   filterCandidatesForArchiveHistory,
   filterCandidatesForCooldowns,
+  filterCandidatesForSaturatedTopics,
   filterCandidatesForWeeklyCaps,
   filterCandidatesForTemplateName,
   inferTopicFamily,
@@ -978,6 +979,59 @@ test("filterCandidatesForCooldowns preserves blocked candidates with an explicit
   assert.equal(filtered[0].cooldown_exhaustion_fallback, undefined);
 });
 
+test("filterCandidatesForSaturatedTopics blocks repeated conversation-thread posts", () => {
+  const filtered = filterCandidatesForSaturatedTopics(
+    [
+      {
+        content_key: "auth-newman-conversation-thread",
+        file: "newman/auth-newman-conversation-thread-desktop-light-fold.png",
+        topic_family: "conversation-thread",
+      },
+      {
+        content_key: "auth-artvandelay-settings-notifications",
+        file: "artvandelay/auth-artvandelay-settings-notifications-mobile-light-fold.png",
+        topic_family: "notifications",
+      },
+    ],
+    [
+      {
+        archive_key: "2026-06-26",
+        content_key: "auth-newman-conversation-thread",
+        topic_family: "conversation-thread",
+      },
+    ],
+    "2026-06-26",
+  );
+
+  assert.deepEqual(
+    filtered.map((candidate) => candidate.content_key),
+    ["auth-artvandelay-settings-notifications"],
+  );
+});
+
+test("filterCandidatesForSaturatedTopics fails closed when only chat candidates remain", () => {
+  assert.throws(
+    () => filterCandidatesForSaturatedTopics(
+      [
+        {
+          content_key: "auth-artvandelay-conversation-thread",
+          file: "artvandelay/auth-artvandelay-conversation-thread-mobile-light-fold.png",
+          topic_family: "conversation-thread",
+        },
+      ],
+      [
+        {
+          archive_key: "2026-06-26",
+          content_key: "auth-newman-conversation-thread",
+          topic_family: "conversation-thread",
+        },
+      ],
+      "2026-06-26",
+    ),
+    /saturated topic families are blocked: conversation-thread/,
+  );
+});
+
 test("validatePlan allows screenshot cooldown fallback candidates", () => {
   const context = buildContext({
     candidate_screenshots: [
@@ -1118,6 +1172,53 @@ test("validatePlan rejects messaging that duplicates a recent archive angle", ()
   assert.throws(
     () => validatePlan(buildModelPlan(), context),
     /duplicates recent archive headline/,
+  );
+});
+
+test("validatePlan rejects repeated conversation-thread topic even with a different screenshot", () => {
+  const context = buildContext({
+    candidate_screenshots: [
+      {
+        audience_scope: "recipient-shared",
+        concept_key: "conversation-thread",
+        content_key: "auth-artvandelay-conversation-thread",
+        copy_brief: "Write for recipient teams following up with sources.",
+        file: "artvandelay/auth-artvandelay-conversation-thread-mobile-light-fold.png",
+        matched_pull_requests: [],
+        topic_family: "conversation-thread",
+        theme: "light",
+        title: "Conversation Thread",
+        viewport: "mobile",
+      },
+    ],
+    editorial_intent: {
+      ...buildContext().editorial_intent,
+      audience_scope: "recipient-shared",
+    },
+    recent_archive_history: [
+      {
+        archive_key: "2026-06-26",
+        content_key: "auth-newman-conversation-thread",
+        topic_family: "conversation-thread",
+      },
+    ],
+  });
+
+  assert.throws(
+    () => validatePlan(
+      buildModelPlan({
+        post: {
+          ...buildModelPlan().post,
+          audience_scope: "recipient-shared",
+          concept_key: "conversation-thread",
+          content_key: "auth-artvandelay-conversation-thread",
+          screenshot_file: "artvandelay/auth-artvandelay-conversation-thread-mobile-light-fold.png",
+          topic_family: "conversation-thread",
+        },
+      }),
+      context,
+    ),
+    /uses saturated topic family conversation-thread/,
   );
 });
 

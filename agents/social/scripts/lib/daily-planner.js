@@ -27,6 +27,12 @@ const DAILY_POSTS_ROOT = path.join(REPO_ROOT, "previous-posts");
 const ARCHIVE_LOOKBACK_DAYS = 90;
 const FEATURE_REPEAT_HARD_LOOKBACK_POSTS = 5;
 const EDITORIAL_CRITIC_THRESHOLD = 12;
+const SATURATED_TOPIC_POLICY = Object.freeze({
+  "conversation-thread": {
+    max_recent_count: 0,
+    window_posts: 30,
+  },
+});
 const DEFAULT_COOLDOWN_POLICY = {
   allow_override: false,
   concept_key_posts: 20,
@@ -1496,6 +1502,52 @@ function filterCandidatesForWeeklyCaps(candidates, archiveHistory, plannedDate) 
   return filtered;
 }
 
+function saturatedTopicViolation(candidate, archiveHistory) {
+  const topicFamily = candidate.topic_family || inferTopicFamily(candidate);
+  const policy = SATURATED_TOPIC_POLICY[topicFamily];
+
+  if (!policy) {
+    return null;
+  }
+
+  const recentEntries = recentArchiveEntries(archiveHistory || [], policy.window_posts);
+  const matchingEntries = recentEntries.filter((entry) => entry.topic_family === topicFamily);
+
+  if (matchingEntries.length <= policy.max_recent_count) {
+    return null;
+  }
+
+  return {
+    archive_keys: matchingEntries.map((entry) => entry.archive_key).filter(Boolean),
+    max_recent_count: policy.max_recent_count,
+    recent_count: matchingEntries.length,
+    topic_family: topicFamily,
+    window_posts: policy.window_posts,
+  };
+}
+
+function filterCandidatesForSaturatedTopics(candidates, archiveHistory, plannedDate) {
+  const evaluated = candidates.map((candidate) => ({
+    ...candidate,
+    saturated_topic_violation: saturatedTopicViolation(candidate, archiveHistory),
+  }));
+  const allowed = evaluated.filter((candidate) => !candidate.saturated_topic_violation);
+
+  if (allowed.length === 0 && evaluated.length > 0) {
+    const topics = Array.from(new Set(
+      evaluated
+        .map((candidate) => candidate.saturated_topic_violation?.topic_family)
+        .filter(Boolean),
+    )).join(", ");
+
+    throw new Error(
+      `No eligible screenshot candidates remain for ${plannedDate}; saturated topic families are blocked: ${topics || "unknown"}.`,
+    );
+  }
+
+  return allowed;
+}
+
 function candidateCooldownViolations(candidate, archiveHistory, cooldownPolicy = DEFAULT_COOLDOWN_POLICY) {
   const normalized = {
     ...candidate,
@@ -1673,8 +1725,13 @@ function buildDailyContext(args) {
     archiveHistory,
     args.date,
   );
-  const cooldownEligibleCandidates = filterCandidatesForCooldowns(
+  const topicEligibleCandidates = filterCandidatesForSaturatedTopics(
     weekEligibleCandidates,
+    archiveHistory,
+    args.date,
+  );
+  const cooldownEligibleCandidates = filterCandidatesForCooldowns(
+    topicEligibleCandidates,
     archiveHistory,
     cooldownPolicy,
   );
@@ -2052,6 +2109,13 @@ function validatePlan(modelPlan, context) {
     throw new Error(`Model selected screenshot outside shortlist: ${post.screenshot_file}`);
   }
 
+  const topicViolation = saturatedTopicViolation(candidate, context.recent_archive_history || []);
+  if (topicViolation) {
+    throw new Error(
+      `Selected screenshot ${post.screenshot_file} uses saturated topic family ${topicViolation.topic_family}; recent archive already has ${topicViolation.recent_count} within the last ${topicViolation.window_posts} posts.`,
+    );
+  }
+
   const cooldownPolicy = context.cooldown_policy || DEFAULT_COOLDOWN_POLICY;
   if (!cooldownPolicy.allow_override && !candidate.cooldown_exhaustion_fallback) {
     const violations = candidateCooldownViolations(
@@ -2296,6 +2360,7 @@ module.exports = {
   filterCandidatesForEditorialIntent,
   filterCandidatesForArchiveHistory,
   filterCandidatesForCooldowns,
+  filterCandidatesForSaturatedTopics,
   filterCandidatesForWeeklyCaps,
   filterCandidatesForTemplateName,
   getContentFormat,
