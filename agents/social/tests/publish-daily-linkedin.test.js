@@ -159,6 +159,99 @@ test("publisher can dry-run from a suffixed daily archive container for the same
   }
 });
 
+test("publisher fails closed before dry-run when a daily headline duplicates history", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "linkedin-publish-"));
+  const previousPostDir = path.join(tempRoot, "2026-03-19");
+  const currentPostDir = path.join(tempRoot, "2026-03-20");
+  fs.mkdirSync(previousPostDir, { recursive: true });
+  fs.mkdirSync(currentPostDir, { recursive: true });
+
+  fs.writeFileSync(
+    path.join(previousPostDir, "post.json"),
+    JSON.stringify({
+      headline: "Keep follow-up in the conversation thread",
+      slot: "thursday",
+      planned_date: "2026-03-19",
+      image_alt_text: "A rendered Hush Line social card.",
+      social: {
+        linkedin: "Older copy.\n\nSign up at https://hushline.app/.",
+      },
+    }),
+  );
+  fs.writeFileSync(
+    path.join(currentPostDir, "post.json"),
+    JSON.stringify({
+      headline: "Keep follow-up in the conversation thread",
+      slot: "friday",
+      planned_date: "2026-03-20",
+      image_alt_text: "A rendered Hush Line social card.",
+      social: {
+        linkedin: "Fresh body copy, but the headline repeats.\n\nSign up at https://hushline.app/.",
+      },
+    }),
+  );
+  fs.writeFileSync(path.join(currentPostDir, "social-card@2x.png"), "png");
+
+  try {
+    assert.throws(
+      () => runPublisher(["--date", "2026-03-20", "--date-root", tempRoot, "--dry-run"]),
+      /Publication safety check failed for 2026-03-20:[\s\S]+headline duplicates/,
+    );
+  } finally {
+    fs.rmSync(tempRoot, { force: true, recursive: true });
+  }
+});
+
+test("publisher force mode does not bypass duplicate content safety", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "linkedin-publish-"));
+  const previousPostDir = path.join(tempRoot, "2026-03-19");
+  const currentPostDir = path.join(tempRoot, "2026-03-20");
+  fs.mkdirSync(previousPostDir, { recursive: true });
+  fs.mkdirSync(currentPostDir, { recursive: true });
+
+  fs.writeFileSync(
+    path.join(previousPostDir, "post.json"),
+    JSON.stringify({
+      headline: "Keep follow-up in the conversation thread",
+      slot: "thursday",
+      planned_date: "2026-03-19",
+      image_alt_text: "A rendered Hush Line social card.",
+      social: {
+        linkedin: "Older copy.\n\nSign up at https://hushline.app/.",
+      },
+    }),
+  );
+  fs.writeFileSync(
+    path.join(currentPostDir, "post.json"),
+    JSON.stringify({
+      headline: "Keep follow-up in the conversation thread",
+      slot: "friday",
+      planned_date: "2026-03-20",
+      image_alt_text: "A rendered Hush Line social card.",
+      social: {
+        linkedin: "Fresh body copy, but the headline repeats.\n\nSign up at https://hushline.app/.",
+      },
+    }),
+  );
+  fs.writeFileSync(path.join(currentPostDir, "social-card@2x.png"), "png");
+
+  try {
+    assert.throws(
+      () => runPublisher([
+        "--date",
+        "2026-03-20",
+        "--date-root",
+        tempRoot,
+        "--dry-run",
+        "--force",
+      ]),
+      /Publication safety check failed for 2026-03-20:[\s\S]+headline duplicates/,
+    );
+  } finally {
+    fs.rmSync(tempRoot, { force: true, recursive: true });
+  }
+});
+
 test("publisher reports when no archived daily post exists for the requested date", () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "linkedin-publish-"));
 
