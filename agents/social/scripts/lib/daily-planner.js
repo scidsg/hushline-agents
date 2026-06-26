@@ -618,7 +618,7 @@ function printHelp() {
 
 function withinArchiveWindow(archiveDate, currentDate) {
   const diffDays = Math.floor((currentDate.getTime() - archiveDate.getTime()) / 86400000);
-  return diffDays > 0 && diffDays <= ARCHIVE_LOOKBACK_DAYS;
+  return diffDays >= 0 && diffDays <= ARCHIVE_LOOKBACK_DAYS;
 }
 
 function buildMessageText(entry) {
