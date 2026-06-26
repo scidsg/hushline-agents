@@ -14,6 +14,7 @@ const {
   readJson,
   writeJson,
 } = require("./lib/social-common");
+const { assertPublicationIsOriginal } = require("./lib/publication-safety");
 
 function todayString() {
   const now = new Date();
@@ -474,6 +475,12 @@ async function main() {
       `Failed to refresh ${remotePublished.remote}/${remotePublished.branch} before checking LinkedIn publication state.`,
     );
   }
+
+  assertPublicationIsOriginal({
+    archiveKey: args.archiveKey,
+    dateRoot: args.dateRoot,
+    post,
+  });
 
   if (args.dryRun) {
     process.stdout.write(
