@@ -26,6 +26,7 @@ const {
 const DAILY_POSTS_ROOT = path.join(REPO_ROOT, "previous-posts");
 const ARCHIVE_LOOKBACK_DAYS = 90;
 const FEATURE_REPEAT_HARD_LOOKBACK_POSTS = 45;
+const EXACT_SCREENSHOT_REPEAT_HARD_LOOKBACK_POSTS = 45;
 const EDITORIAL_CRITIC_THRESHOLD = 12;
 const SATURATED_TOPIC_POLICY = Object.freeze({
   "conversation-thread": {
@@ -1578,6 +1579,50 @@ function filterCandidatesForSaturatedTopics(candidates, archiveHistory, plannedD
   return allowed;
 }
 
+function exactScreenshotRepeatViolation(candidate, archiveHistory) {
+  const candidateScreenshot = candidate.file || candidate.screenshot_file || "";
+
+  if (!candidateScreenshot) {
+    return null;
+  }
+
+  const match = recentArchiveEntries(
+    archiveHistory || [],
+    EXACT_SCREENSHOT_REPEAT_HARD_LOOKBACK_POSTS,
+  ).find((entry) => entry.screenshot_file && entry.screenshot_file === candidateScreenshot);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    archive_key: match.archive_key,
+    screenshot_file: match.screenshot_file,
+    window_posts: EXACT_SCREENSHOT_REPEAT_HARD_LOOKBACK_POSTS,
+  };
+}
+
+function filterCandidatesForExactScreenshotRepeats(candidates, archiveHistory, plannedDate) {
+  const evaluated = candidates.map((candidate) => ({
+    ...candidate,
+    exact_screenshot_repeat_violation: exactScreenshotRepeatViolation(candidate, archiveHistory),
+  }));
+  const allowed = evaluated.filter((candidate) => !candidate.exact_screenshot_repeat_violation);
+
+  if (allowed.length === 0 && evaluated.length > 0) {
+    const screenshots = evaluated
+      .map((candidate) => candidate.exact_screenshot_repeat_violation?.screenshot_file)
+      .filter(Boolean);
+    const uniqueScreenshots = Array.from(new Set(screenshots)).join(", ");
+
+    throw new Error(
+      `No eligible screenshot candidates remain for ${plannedDate}; recent exact screenshot repeats are blocked: ${uniqueScreenshots || "unknown"}.`,
+    );
+  }
+
+  return allowed;
+}
+
 
 function candidateCooldownViolations(candidate, archiveHistory, cooldownPolicy = DEFAULT_COOLDOWN_POLICY) {
   const normalized = {
@@ -1756,8 +1801,13 @@ function buildDailyContext(args) {
     archiveHistory,
     args.date,
   );
-  const variedCandidates = filterCandidatesForArchiveHistory(
+  const screenshotEligibleCandidates = filterCandidatesForExactScreenshotRepeats(
     topicEligibleCandidates,
+    archiveHistory,
+    args.date,
+  );
+  const variedCandidates = filterCandidatesForArchiveHistory(
+    screenshotEligibleCandidates,
     archiveHistory,
     { currentArchiveKey: args.archiveKey },
   );
@@ -2148,6 +2198,13 @@ function validatePlan(modelPlan, context) {
     );
   }
 
+  const exactScreenshotViolation = exactScreenshotRepeatViolation(candidate, context.recent_archive_history || []);
+  if (exactScreenshotViolation) {
+    throw new Error(
+      `Selected screenshot ${post.screenshot_file} repeats exact screenshot from ${exactScreenshotViolation.archive_key} within the last ${exactScreenshotViolation.window_posts} posts.`,
+    );
+  }
+
   const cooldownPolicy = context.cooldown_policy || DEFAULT_COOLDOWN_POLICY;
   if (!cooldownPolicy.allow_override && !candidate.cooldown_exhaustion_fallback) {
     const violations = candidateCooldownViolations(
@@ -2392,6 +2449,7 @@ module.exports = {
   filterCandidatesForEditorialIntent,
   filterCandidatesForArchiveHistory,
   filterCandidatesForCooldowns,
+  filterCandidatesForExactScreenshotRepeats,
   filterCandidatesForSaturatedTopics,
   filterCandidatesForWeeklyCaps,
   filterCandidatesForTemplateName,

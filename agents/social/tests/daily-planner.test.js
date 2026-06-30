@@ -16,6 +16,7 @@ const {
   filterCandidatesForEditorialIntent,
   filterCandidatesForArchiveHistory,
   filterCandidatesForCooldowns,
+  filterCandidatesForExactScreenshotRepeats,
   filterCandidatesForSaturatedTopics,
   filterCandidatesForWeeklyCaps,
   filterCandidatesForTemplateName,
@@ -1138,6 +1139,77 @@ test("filterCandidatesForSaturatedTopics blocks repeated message-statuses posts"
   );
 });
 
+test("filterCandidatesForExactScreenshotRepeats blocks recent exact screenshot reuse", () => {
+  const filtered = filterCandidatesForExactScreenshotRepeats(
+    [
+      {
+        content_key: "guest-directory-verified",
+        file: "guest/guest-directory-verified-desktop-light-fold.png",
+        topic_family: "directory",
+      },
+      {
+        content_key: "auth-artvandelay-settings-notifications",
+        file: "artvandelay/auth-artvandelay-settings-notifications-mobile-light-fold.png",
+        topic_family: "notifications",
+      },
+    ],
+    [
+      {
+        archive_key: "2026-06-26-2",
+        screenshot_file: "guest/guest-directory-verified-desktop-light-fold.png",
+        topic_family: "directory",
+      },
+    ],
+    "2026-06-30",
+  );
+
+  assert.deepEqual(
+    filtered.map((candidate) => candidate.content_key),
+    ["auth-artvandelay-settings-notifications"],
+  );
+});
+
+
+test("validatePlan rejects exact screenshot reuse even during cooldown fallback", () => {
+  const context = buildContext({
+    candidate_screenshots: [
+      {
+        audience_scope: "public",
+        concept_key: "directory-verified",
+        content_key: "guest-directory-verified",
+        copy_brief: "Write for sources and public users evaluating or using Hush Line.",
+        cooldown_exhaustion_fallback: true,
+        cooldown_violations: [
+          {
+            archive_key: "2026-03-19",
+            field: "topic_family",
+            value: "directory",
+            window_posts: 5,
+          },
+        ],
+        file: "guest/guest-directory-verified-desktop-light-fold.png",
+        matched_pull_requests: [],
+        topic_family: "directory",
+        theme: "light",
+        title: "Directory - Verified",
+        viewport: "desktop",
+      },
+    ],
+    recent_archive_history: [
+      {
+        archive_key: "2026-03-19",
+        linkedin_copy: "People can find verified recipients before sending a tip.",
+        screenshot_file: "guest/guest-directory-verified-desktop-light-fold.png",
+        topic_family: "directory",
+      },
+    ],
+  });
+
+  assert.throws(
+    () => validatePlan(buildModelPlan(), context),
+    /repeats exact screenshot from 2026-03-19/,
+  );
+});
 
 test("validatePlan allows screenshot cooldown fallback candidates", () => {
   const context = buildContext({
@@ -1175,6 +1247,7 @@ test("validatePlan allows screenshot cooldown fallback candidates", () => {
         archive_key: "2026-03-19",
         concept_key: "directory-verified",
         linkedin_copy: "People can find verified recipients before sending a tip. Learn more at https://hushline.app/.",
+        screenshot_file: "guest/guest-directory-attorney-adam-j-levitt-mobile-light-fold.png",
         topic_family: "directory",
       },
     ],
