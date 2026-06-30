@@ -1796,13 +1796,8 @@ function buildDailyContext(args) {
   const archiveHistory = loadArchiveHistory(args.archiveKey);
   const contentFormatSelection = chooseContentFormat(archiveHistory, args.date);
   const templateNames = listDailyTemplateNames();
-  const variedCandidates = filterCandidatesForArchiveHistory(
-    planningContext.candidate_screenshots,
-    archiveHistory,
-    { currentArchiveKey: args.archiveKey },
-  );
   const weekEligibleCandidates = filterCandidatesForWeeklyCaps(
-    variedCandidates,
+    planningContext.candidate_screenshots,
     archiveHistory,
     args.date,
   );
@@ -1816,8 +1811,13 @@ function buildDailyContext(args) {
     archiveHistory,
     args.date,
   );
-  const cooldownEligibleCandidates = filterCandidatesForCooldowns(
+  const variedCandidates = filterCandidatesForArchiveHistory(
     hardRepeatEligibleCandidates,
+    archiveHistory,
+    { currentArchiveKey: args.archiveKey },
+  );
+  const cooldownEligibleCandidates = filterCandidatesForCooldowns(
+    variedCandidates,
     archiveHistory,
     cooldownPolicy,
   );
