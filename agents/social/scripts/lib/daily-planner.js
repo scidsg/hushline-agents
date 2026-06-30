@@ -1578,56 +1578,6 @@ function filterCandidatesForSaturatedTopics(candidates, archiveHistory, plannedD
   return allowed;
 }
 
-function hardFeatureRepeatViolation(candidate, archiveHistory) {
-  const candidateScreenshot = candidate.file || candidate.screenshot_file || "";
-  const candidateScreenKey = candidate.screen_key || inferScreenKey(candidate);
-  const match = recentArchiveEntries(
-    archiveHistory || [],
-    FEATURE_REPEAT_HARD_LOOKBACK_POSTS,
-  ).find((entry) => {
-    const sameScreenshot = entry.screenshot_file && candidateScreenshot &&
-      entry.screenshot_file === candidateScreenshot;
-    const sameScreenKey = entry.screen_key && candidateScreenKey &&
-      entry.screen_key === candidateScreenKey;
-
-    return sameScreenshot || sameScreenKey;
-  });
-
-  if (!match) {
-    return null;
-  }
-
-  return {
-    archive_key: match.archive_key,
-    screen_key: match.screen_key || "",
-    screenshot_file: match.screenshot_file || "",
-    window_posts: FEATURE_REPEAT_HARD_LOOKBACK_POSTS,
-  };
-}
-
-function filterCandidatesForHardFeatureRepeats(candidates, archiveHistory, plannedDate) {
-  const evaluated = candidates.map((candidate) => ({
-    ...candidate,
-    hard_feature_repeat_violation: hardFeatureRepeatViolation(candidate, archiveHistory),
-  }));
-  const allowed = evaluated.filter((candidate) => !candidate.hard_feature_repeat_violation);
-
-  if (allowed.length === 0 && evaluated.length > 0) {
-    const repeats = evaluated
-      .map((candidate) => candidate.hard_feature_repeat_violation)
-      .filter(Boolean)
-      .map((violation) => {
-        return violation.screen_key || violation.screenshot_file || violation.archive_key;
-      });
-    const uniqueRepeats = Array.from(new Set(repeats)).filter(Boolean).join(", ");
-
-    throw new Error(
-      `No eligible screenshot candidates remain for ${plannedDate}; recent feature repeats are blocked: ${uniqueRepeats || "unknown"}.`,
-    );
-  }
-
-  return allowed;
-}
 
 function candidateCooldownViolations(candidate, archiveHistory, cooldownPolicy = DEFAULT_COOLDOWN_POLICY) {
   const normalized = {
@@ -1806,13 +1756,8 @@ function buildDailyContext(args) {
     archiveHistory,
     args.date,
   );
-  const hardRepeatEligibleCandidates = filterCandidatesForHardFeatureRepeats(
-    topicEligibleCandidates,
-    archiveHistory,
-    args.date,
-  );
   const variedCandidates = filterCandidatesForArchiveHistory(
-    hardRepeatEligibleCandidates,
+    topicEligibleCandidates,
     archiveHistory,
     { currentArchiveKey: args.archiveKey },
   );
@@ -2203,13 +2148,6 @@ function validatePlan(modelPlan, context) {
     );
   }
 
-  const hardRepeatViolation = hardFeatureRepeatViolation(candidate, context.recent_archive_history || []);
-  if (hardRepeatViolation) {
-    throw new Error(
-      `Selected screenshot ${post.screenshot_file} repeats recent feature surface from ${hardRepeatViolation.archive_key} within the last ${hardRepeatViolation.window_posts} posts.`,
-    );
-  }
-
   const cooldownPolicy = context.cooldown_policy || DEFAULT_COOLDOWN_POLICY;
   if (!cooldownPolicy.allow_override && !candidate.cooldown_exhaustion_fallback) {
     const violations = candidateCooldownViolations(
@@ -2454,7 +2392,6 @@ module.exports = {
   filterCandidatesForEditorialIntent,
   filterCandidatesForArchiveHistory,
   filterCandidatesForCooldowns,
-  filterCandidatesForHardFeatureRepeats,
   filterCandidatesForSaturatedTopics,
   filterCandidatesForWeeklyCaps,
   filterCandidatesForTemplateName,
