@@ -16,6 +16,7 @@ const {
   filterCandidatesForEditorialIntent,
   filterCandidatesForArchiveHistory,
   filterCandidatesForCooldowns,
+  filterCandidatesForHardFeatureRepeats,
   filterCandidatesForSaturatedTopics,
   filterCandidatesForWeeklyCaps,
   filterCandidatesForTemplateName,
@@ -1108,6 +1109,112 @@ test("filterCandidatesForSaturatedTopics fails closed when only chat candidates 
   );
 });
 
+test("filterCandidatesForSaturatedTopics blocks repeated message-statuses posts", () => {
+  const filtered = filterCandidatesForSaturatedTopics(
+    [
+      {
+        content_key: "auth-artvandelay-settings-replies",
+        file: "artvandelay/auth-artvandelay-settings-replies-desktop-light-fold.png",
+        topic_family: "message-statuses",
+      },
+      {
+        content_key: "auth-artvandelay-settings-notifications",
+        file: "artvandelay/auth-artvandelay-settings-notifications-mobile-light-fold.png",
+        topic_family: "notifications",
+      },
+    ],
+    [
+      {
+        archive_key: "2026-06-01",
+        content_key: "auth-artvandelay-settings-replies",
+        topic_family: "message-statuses",
+      },
+    ],
+    "2026-06-30",
+  );
+
+  assert.deepEqual(
+    filtered.map((candidate) => candidate.content_key),
+    ["auth-artvandelay-settings-notifications"],
+  );
+});
+
+test("filterCandidatesForHardFeatureRepeats blocks recent repeated feature surfaces", () => {
+  const filtered = filterCandidatesForHardFeatureRepeats(
+    [
+      {
+        content_key: "auth-artvandelay-settings-replies",
+        file: "artvandelay/auth-artvandelay-settings-replies-desktop-light-fold.png",
+        screen_key: "auth-artvandelay-settings-replies",
+        topic_family: "message-statuses",
+      },
+      {
+        content_key: "auth-artvandelay-settings-notifications",
+        file: "artvandelay/auth-artvandelay-settings-notifications-mobile-light-fold.png",
+        screen_key: "auth-artvandelay-settings-notifications",
+        topic_family: "notifications",
+      },
+    ],
+    [
+      {
+        archive_key: "2026-06-01",
+        screen_key: "auth-artvandelay-settings-replies",
+        screenshot_file: "artvandelay/auth-artvandelay-settings-replies-desktop-light-fold.png",
+        topic_family: "message-statuses",
+      },
+    ],
+    "2026-06-30",
+  );
+
+  assert.deepEqual(
+    filtered.map((candidate) => candidate.content_key),
+    ["auth-artvandelay-settings-notifications"],
+  );
+});
+
+test("validatePlan rejects cooldown fallback candidates that repeat a recent feature surface", () => {
+  const context = buildContext({
+    candidate_screenshots: [
+      {
+        audience_scope: "public",
+        concept_key: "directory-verified",
+        content_key: "guest-directory-verified",
+        copy_brief: "Write for sources and public users evaluating or using Hush Line.",
+        cooldown_exhaustion_fallback: true,
+        cooldown_violations: [
+          {
+            archive_key: "2026-03-19",
+            field: "topic_family",
+            value: "directory",
+            window_posts: 5,
+          },
+        ],
+        file: "guest/guest-directory-verified-desktop-light-fold.png",
+        matched_pull_requests: [],
+        screen_key: "directory-index",
+        topic_family: "directory",
+        theme: "light",
+        title: "Directory - Verified",
+        viewport: "desktop",
+      },
+    ],
+    recent_archive_history: [
+      {
+        archive_key: "2026-03-19",
+        linkedin_copy: "People can find verified recipients before sending a tip.",
+        screen_key: "directory-index",
+        screenshot_file: "guest/guest-directory-verified-desktop-light-fold.png",
+        topic_family: "directory",
+      },
+    ],
+  });
+
+  assert.throws(
+    () => validatePlan(buildModelPlan(), context),
+    /repeats recent feature surface from 2026-03-19/,
+  );
+});
+
 test("validatePlan allows screenshot cooldown fallback candidates", () => {
   const context = buildContext({
     candidate_screenshots: [
@@ -1238,7 +1345,7 @@ test("validatePlan rejects messaging that duplicates a recent archive angle", ()
         archive_key: "2026-03-19",
         headline: "Let sources verify a recipient before they send a tip",
         linkedin_copy: "Sources can verify trust signals before sending a tip. Learn more at https://hushline.app/.",
-        screen_key: "directory-index",
+        screen_key: "directory-archive-headline",
         subtext: "The public directory highlights verified accounts before a message is sent.",
         topic_family: "directory",
       },
@@ -1305,7 +1412,7 @@ test("validatePlan allows an older same-topic archive outside the recent-feature
         archive_key: "2026-03-10",
         headline: "Verify a recipient before you send a tip",
         linkedin_copy: "Trust signals help people verify a recipient before they send a tip. Learn more at https://hushline.app/.",
-        screen_key: "directory-index",
+        screen_key: "directory-archive-old",
         subtext: "The public directory highlights trust signals before someone sends a message.",
         topic_family: "directory",
       },
