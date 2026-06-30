@@ -28,6 +28,7 @@ const {
   refreshDailyContextArchiveHistory,
   scoreEditorialCritic,
   selectCandidateShortlist,
+  summarizePreviousPostsForScreenshot,
   summarizeScreenshotRotation,
   validatePlan,
 } = require("../scripts/lib/daily-planner");
@@ -622,6 +623,42 @@ test("buildPromptPayload includes selected editorial format guidance", () => {
   assert.match(payload.user, /Treat screenshots as visual support/);
   assert.match(payload.user, /Mistake to avoid \(mistake_to_avoid\)/);
   assert.match(payload.user, /Use exactly the required content format/);
+});
+
+test("buildPromptPayload includes prior posts for each exact screenshot", () => {
+  const context = buildContext({
+    audience_docs: [],
+    hushline_agent_context: "",
+    hushline_app_voice_guidance: [],
+    recent_archive_history: [
+      {
+        archive_key: "2026-03-01",
+        content_format: "feature_benefit",
+        content_key: "guest-directory-verified",
+        date: "2026-03-01",
+        headline: "Show sources who is verified",
+        linkedin_copy: "Sources can check the directory before sending a message.",
+        screenshot_file: "guest/guest-directory-verified-desktop-light-fold.png",
+        subtext: "The directory marks verified recipients before first contact.",
+        topic_family: "directory",
+      },
+      {
+        archive_key: "2026-03-02",
+        content_key: "auth-settings-notifications",
+        screenshot_file: "artvandelay/auth-artvandelay-settings-notifications-desktop-light-fold.png",
+      },
+    ],
+    screenshot_captured_at: "2026-03-20T00:00:00Z",
+    screenshot_release: "test-release",
+    week: "2026-W12",
+  });
+  const payload = buildPromptPayload(context);
+
+  assert.match(payload.user, /Previous posts for each shortlisted screenshot:/);
+  assert.match(payload.user, /Here are all of the previous posts for this screenshot/);
+  assert.match(payload.user, /Show sources who is verified/);
+  assert.match(payload.user, /Sources can check the directory before sending a message/);
+  assert.match(payload.user, /say something unique that speaks to Hush Line.s core personas/);
 });
 
 test("validatePlan rejects a missing or mismatched content format", () => {
