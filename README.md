@@ -15,7 +15,8 @@ in their owning repositories.
   templates owned by this repository.
 - `agents/product/code/`: Hush Line issue runner, bootstrap helper, log sanitizer,
   runner dashboard, code-agent policy, operations docs, and tests.
-- `agents/product/reporting/`: weekly local runner reporting script and tests.
+- `agents/product/reporting/`: weekly local runner reporting, monthly board reporting,
+  launchd templates, and tests.
 - `agents/social/`: social agent package, launchd wrappers, Node planners/publishers,
   templates, assets, docs, tests, and LaunchAgent/LaunchDaemon templates.
 - `agents/sales/`: sales contact agent, launchd wrappers, deploy templates, tests, and
@@ -53,6 +54,10 @@ make test
 - Runtime logs are stored under `logs/` and ignored by Git.
 - The weekly brief runner requires `HUSHLINE_WEEKLY_AGENT_REPORT_FROM` and
   `HUSHLINE_WEEKLY_AGENT_REPORT_TO`.
+- The monthly board report runner sends from `admin@hushline.app` to
+  `glenn@hushline.app` by default. Override the recipient with
+  `HUSHLINE_MONTHLY_BOARD_REPORT_TO`; local idempotency state is stored under ignored
+  `logs/monthly-board-reports/`.
 - The sales contact agent refuses to send unless `HUSHLINE_SALES_AGENT_FROM` is
   exactly `sales@hushline.app`.
 - Agent-authored product changes always require human review.
