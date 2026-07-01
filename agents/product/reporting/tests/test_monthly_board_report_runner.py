@@ -134,6 +134,107 @@ def test_collects_commits_and_renders_board_report(tmp_path: Path) -> None:
     assert "Old work outside report window" not in report
 
 
+def test_commit_collection_scans_all_refs_not_only_current_branch(tmp_path: Path) -> None:
+    runner = load_runner()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    init_repo(repo)
+    commit_file(
+        repo,
+        "base.txt",
+        "base",
+        "Base work outside report window",
+        "2026-06-20T10:00:00-07:00",
+    )
+    subprocess.run(
+        [GIT_EXECUTABLE, "-C", str(repo), "branch", "reporting-main"],
+        check=True,
+        capture_output=True,
+    )
+    commit_file(
+        repo,
+        "main.txt",
+        "main",
+        "Improve board-visible product workflow (#2401)",
+        "2026-07-12T10:00:00-07:00",
+    )
+    subprocess.run(
+        [GIT_EXECUTABLE, "-C", str(repo), "switch", "reporting-main"],
+        check=True,
+        capture_output=True,
+    )
+
+    summary = runner.summarize_repo(
+        runner.RepoSpec("Product", repo),
+        runner.report_window(date(2026, 7, 31), None),
+    )
+
+    assert summary.commit_count == 1
+    assert summary.commits[0].subject == "Improve board-visible product workflow (#2401)"
+
+
+def test_release_sort_handles_mixed_tag_styles() -> None:
+    runner = load_runner()
+
+    assert sorted(["v1.2.3", "2026-07", "release-10"], key=runner.release_sort_key) == [
+        "2026-07",
+        "release-10",
+        "v1.2.3",
+    ]
+
+
+def test_summarize_repo_returns_warning_for_unreadable_git_repo(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = load_runner()
+    repo = tmp_path / "empty"
+    repo.mkdir()
+    init_repo(repo)
+
+    def fail_collect(_spec: object, _window: object) -> object:
+        raise runner.RunnerError("simulated git ownership failure")
+
+    monkeypatch.setattr(runner, "collect_commits", fail_collect)
+
+    summary = runner.summarize_repo(
+        runner.RepoSpec("Empty", repo),
+        runner.report_window(date(2026, 7, 31), None),
+    )
+
+    assert summary.exists is False
+    assert "simulated git ownership failure" in summary.warning
+    assert summary.commit_count == 0
+
+
+def test_month_argument_does_not_bypass_last_day_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runner = load_runner()
+    sent = []
+    monkeypatch.setattr(runner, "send_with_mail_app", lambda _subject, _body: sent.append(True))
+
+    result = runner.main(
+        [
+            "--date",
+            "2026-07-01",
+            "--month",
+            "2026-07",
+            "--state-file",
+            str(tmp_path / "state.json"),
+            "--repo",
+            f"Missing={tmp_path / 'missing'}",
+        ],
+    )
+
+    assert result == 0
+    assert sent == []
+    assert "not the last day" in capsys.readouterr().out
+    assert not (tmp_path / "state.json").exists()
+
+
 def test_main_skips_non_last_day_without_state_or_send(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -178,11 +279,12 @@ def test_main_persists_sends_and_records_idempotency(
     output_dir = tmp_path / "reports"
     state_file = tmp_path / "state.json"
     sent: list[tuple[str, str]] = []
-    monkeypatch.setattr(
-        runner,
-        "send_with_mail_app",
-        lambda subject, body: sent.append((subject, body)),
-    )
+
+    def fake_send(subject: str, body: str) -> bool:
+        sent.append((subject, body))
+        return True
+
+    monkeypatch.setattr(runner, "send_with_mail_app", fake_send)
 
     result = runner.main(
         [
@@ -265,9 +367,10 @@ def test_send_with_mail_app_uses_admin_mail_account(monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setattr(runner.subprocess, "run", fake_run)
 
-    runner.send_with_mail_app("Subject", "Body")
+    sent = runner.send_with_mail_app("Subject", "Body")
 
     assert len(calls) == 1
+    assert sent is True
     command, kwargs = calls[0]
     assert command[:2] == ["/usr/bin/osascript", "-"]
     assert command[2:5] == ["admin@hushline.app", "glenn@hushline.app", "Subject"]
@@ -276,3 +379,59 @@ def test_send_with_mail_app_uses_admin_mail_account(monkeypatch: pytest.MonkeyPa
     assert 'tell application "Mail"' in script
     assert "with timeout of 300 seconds" in script
     assert kwargs["timeout"] == runner.MAIL_APP_OSASCRIPT_TIMEOUT_SECONDS
+
+
+def test_mail_timeout_does_not_mark_month_sent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runner = load_runner()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    init_repo(repo)
+    commit_file(
+        repo,
+        "runner.txt",
+        "runner",
+        "Add monthly board report workflow (#2400)",
+        "2026-07-12T10:00:00-07:00",
+    )
+    state_file = tmp_path / "state.json"
+
+    def fake_send(_subject: str, _body: str) -> bool:
+        return False
+
+    monkeypatch.setattr(runner, "send_with_mail_app", fake_send)
+
+    result = runner.main(
+        [
+            "--date",
+            "2026-07-31",
+            "--repo",
+            f"Agents={repo}",
+            "--report-output-dir",
+            str(tmp_path / "reports"),
+            "--state-file",
+            str(state_file),
+        ],
+    )
+
+    assert result == 1
+    assert not state_file.exists()
+    assert "delivery was not confirmed" in capsys.readouterr().out
+
+
+def test_send_with_mail_app_reports_timeout_as_unconfirmed(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runner = load_runner()
+
+    def fake_run(command: list[str], **_kwargs: object) -> object:
+        raise runner.subprocess.TimeoutExpired(command, runner.MAIL_APP_OSASCRIPT_TIMEOUT_SECONDS)
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+
+    assert runner.send_with_mail_app("Subject", "Body") is False
+    assert "not marking this monthly report as sent" in capsys.readouterr().err

@@ -354,13 +354,16 @@ Mail.app delivery defaults to:
 The sender is fixed at `admin@hushline.app`. Override the recipient with
 `HUSHLINE_MONTHLY_BOARD_REPORT_TO`. Override the scanned repositories with repeated
 `--repo NAME=PATH` arguments or the colon-separated
-`HUSHLINE_MONTHLY_BOARD_REPORT_REPOS` environment variable.
+`HUSHLINE_MONTHLY_BOARD_REPORT_REPOS` environment variable. Each configured checkout is
+scanned with `git log --all` for the month so the report uses all local refs, not
+whichever branch the checkout happens to have selected at launch time.
 
 The launchd template intentionally fires on days 28, 29, 30, and 31 at 6:30 PM local
 time because launchd does not have a portable "last day of month" primitive. The
 runner itself enforces the real last-day gate and records sent months in
 `logs/monthly-board-reports/state.json`, so retries or overlapping schedule days do not
-send duplicate board reports. Use `--force` only for a deliberate manual resend.
+send duplicate board reports. `--month` selects the report month but does not bypass the
+last-day gate; use `--force` only for a deliberate manual backfill or resend.
 
 Persisted report bodies are written to
 `logs/monthly-board-reports/monthly-board-report-<month>-<timestamp>.txt` by default.

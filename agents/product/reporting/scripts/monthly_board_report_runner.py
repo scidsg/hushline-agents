@@ -293,6 +293,7 @@ def collect_commits(spec: RepoSpec, window: ReportWindow) -> list[CommitRecord]:
         spec.path,
         [
             "log",
+            "--all",
             f"--since={start.isoformat()}",
             f"--until={end.isoformat()}",
             "--date=iso-strict",
@@ -337,13 +338,16 @@ def collect_releases(spec: RepoSpec, window: ReportWindow) -> list[str]:
     return sorted(releases, key=release_sort_key)
 
 
-def release_sort_key(value: str) -> list[int | str]:
-    parts: list[int | str] = []
+def release_sort_key(value: str) -> tuple[tuple[int, str], ...]:
+    parts: list[tuple[int, str]] = []
     for item in re.split(r"([0-9]+)", value):
         if not item:
             continue
-        parts.append(int(item) if item.isdigit() else item)
-    return parts
+        if item.isdigit():
+            parts.append((0, f"{int(item):020d}"))
+        else:
+            parts.append((1, item.lower()))
+    return tuple(parts)
 
 
 def summarize_repo(spec: RepoSpec, window: ReportWindow) -> RepoSummary:
@@ -351,8 +355,11 @@ def summarize_repo(spec: RepoSpec, window: ReportWindow) -> RepoSummary:
         return RepoSummary(spec, False, 0, 0, 0, [], [], "repository path does not exist")
     if not (spec.path / ".git").exists():
         return RepoSummary(spec, False, 0, 0, 0, [], [], "repository path is not a git checkout")
-    commits = collect_commits(spec, window)
-    releases = collect_releases(spec, window)
+    try:
+        commits = collect_commits(spec, window)
+        releases = collect_releases(spec, window)
+    except RunnerError as exc:
+        return RepoSummary(spec, False, 0, 0, 0, [], [], str(exc))
     likely_pr_count = sum(1 for commit in commits if likely_pr_commit(commit.subject))
     return RepoSummary(
         spec=spec,
@@ -667,7 +674,7 @@ def mark_sent(path: Path, state: dict[str, object], window: ReportWindow, artifa
     path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def send_with_mail_app(subject: str, body: str) -> None:
+def send_with_mail_app(subject: str, body: str) -> bool:
     sender = report_from()
     recipient = report_to()
     if not sender or not recipient:
@@ -691,24 +698,24 @@ def send_with_mail_app(subject: str, body: str) -> None:
     except subprocess.TimeoutExpired:
         print(
             "Warning: Mail.app send handoff exceeded the osascript timeout; "
-            "the message may still have been handed to Mail.",
+            "not marking this monthly report as sent.",
             file=sys.stderr,
         )
-        return
+        return False
     finally:
         if body_path is not None:
             body_path.unlink(missing_ok=True)
 
     if result.returncode == 0:
-        return
+        return True
     detail = result.stderr.strip() or result.stdout.strip() or "no Mail.app output"
     if MAIL_APP_APPLE_EVENT_TIMEOUT_CODE in detail:
         print(
             "Warning: Mail.app reported an AppleEvent timeout after the send handoff; "
-            "the message may still have been handed to Mail.",
+            "not marking this monthly report as sent.",
             file=sys.stderr,
         )
-        return
+        return False
     raise RunnerError(f"Mail.app send failed: {detail}")
 
 
@@ -716,7 +723,7 @@ def main(argv: list[str]) -> int:
     args = parse_args(argv)
     effective_date = args.date or today_local()
     window = report_window(effective_date, args.month)
-    if not args.force and not args.month and not is_last_day(effective_date):
+    if not args.force and not is_last_day(effective_date):
         print(f"Skipped: {effective_date.isoformat()} is not the last day of the month.")
         return 0
 
@@ -747,7 +754,9 @@ def main(argv: list[str]) -> int:
         print(f"Persisted monthly board report: {artifact}")
 
     subject = f"{REPORT_TITLE} - {month_label(window)}"
-    send_with_mail_app(subject, report)
+    if not send_with_mail_app(subject, report):
+        print("Skipped idempotency update because Mail.app delivery was not confirmed.")
+        return 1
     mark_sent(state_file, state, window, artifact)
     print(f"Sent {REPORT_TITLE} for {window.month_key} from {report_from()} to {report_to()}")
     return 0
