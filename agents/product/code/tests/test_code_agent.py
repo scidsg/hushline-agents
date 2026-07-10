@@ -2058,6 +2058,7 @@ def test_collect_issue_candidates_from_project_filters_open_issues_in_target_sta
 source {shlex.quote(str(RUNNER_SCRIPT))}
 PROJECT_OWNER=scidsg
 PROJECT_COLUMN="Agent Eligible"
+ISSUE_AUTHOR="glenn-sorrentino"
 PROJECT_STATUS_FIELD_NAME=Status
 PROJECT_ITEM_LIMIT=200
 REPO_SLUG=scidsg/hushline
@@ -2076,6 +2077,7 @@ gh() {{
                 "number": 1558,
                 "state": "OPEN",
                 "url": "https://github.com/scidsg/hushline/issues/1558",
+                "author": {{"login": "glenn-sorrentino"}},
                 "repository": {{"owner": {{"login": "scidsg"}}, "name": "hushline"}}
               }}
             }},
@@ -2086,6 +2088,7 @@ gh() {{
                 "number": 1559,
                 "state": "OPEN",
                 "url": "https://github.com/scidsg/hushline/issues/1559",
+                "author": {{"login": "glenn-sorrentino"}},
                 "repository": {{"owner": {{"login": "scidsg"}}, "name": "hushline"}}
               }}
             }},
@@ -2096,6 +2099,7 @@ gh() {{
                 "number": 1560,
                 "state": "CLOSED",
                 "url": "https://github.com/scidsg/hushline/issues/1560",
+                "author": {{"login": "glenn-sorrentino"}},
                 "repository": {{"owner": {{"login": "scidsg"}}, "name": "hushline"}}
               }}
             }},
@@ -2106,7 +2110,19 @@ gh() {{
                 "number": 2001,
                 "state": "OPEN",
                 "url": "https://github.com/other/repo/issues/2001",
+                "author": {{"login": "glenn-sorrentino"}},
                 "repository": {{"owner": {{"login": "other"}}, "name": "repo"}}
+              }}
+            }},
+            {{
+              "fieldValueByName": {{"name": "Agent Eligible"}},
+              "content": {{
+                "type": "Issue",
+                "number": 1561,
+                "state": "OPEN",
+                "url": "https://github.com/scidsg/hushline/issues/1561",
+                "author": {{"login": "another-contributor"}},
+                "repository": {{"owner": {{"login": "scidsg"}}, "name": "hushline"}}
               }}
             }}
           ]
@@ -2131,6 +2147,7 @@ def test_collect_issue_candidates_from_project_paginates_before_filtering() -> N
 source {shlex.quote(str(RUNNER_SCRIPT))}
 PROJECT_OWNER=scidsg
 PROJECT_COLUMN="Agent Eligible"
+ISSUE_AUTHOR="glenn-sorrentino"
 PROJECT_STATUS_FIELD_NAME=Status
 PROJECT_ITEM_LIMIT=5
 REPO_SLUG=scidsg/hushline
@@ -2163,6 +2180,7 @@ gh() {{
                 "number": 1559,
                 "state": "OPEN",
                 "url": "https://github.com/scidsg/hushline/issues/1559",
+                "author": {{"login": "glenn-sorrentino"}},
                 "repository": {{"owner": {{"login": "scidsg"}}, "name": "hushline"}}
               }}
             }}
@@ -2194,6 +2212,7 @@ EOF
                 "number": 1558,
                 "state": "OPEN",
                 "url": "https://github.com/scidsg/hushline/issues/1558",
+                "author": {{"login": "glenn-sorrentino"}},
                 "repository": {{"owner": {{"login": "scidsg"}}, "name": "hushline"}}
               }}
             }}
@@ -2223,6 +2242,7 @@ def test_collect_issue_candidates_from_project_supports_custom_status_name() -> 
 source {shlex.quote(str(RUNNER_SCRIPT))}
 PROJECT_OWNER=scidsg
 PROJECT_COLUMN="Agent Eligible"
+ISSUE_AUTHOR="glenn-sorrentino"
 PROJECT_STATUS_FIELD_NAME=Status
 PROJECT_ITEM_LIMIT=200
 REPO_SLUG=scidsg/hushline
@@ -2241,6 +2261,7 @@ gh() {{
                 "number": 1558,
                 "state": "OPEN",
                 "url": "https://github.com/scidsg/hushline/issues/1558",
+                "author": {{"login": "glenn-sorrentino"}},
                 "repository": {{"owner": {{"login": "scidsg"}}, "name": "hushline"}}
               }}
             }},
@@ -2251,6 +2272,7 @@ gh() {{
                 "number": 1559,
                 "state": "OPEN",
                 "url": "https://github.com/scidsg/hushline/issues/1559",
+                "author": {{"login": "glenn-sorrentino"}},
                 "repository": {{"owner": {{"login": "scidsg"}}, "name": "hushline"}}
               }}
             }}
@@ -2269,6 +2291,27 @@ collect_issue_candidates_from_project 12 "In Progress"
 
     assert result.returncode == 0, result.stderr
     assert result.stdout == "1559\n"
+
+
+def test_issue_is_agent_eligible_requires_candidate_from_filtered_queue() -> None:
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+collect_issue_candidates() {{
+  printf '1558\n'
+}}
+
+if issue_is_agent_eligible 1558; then
+  printf 'eligible\n'
+fi
+if ! issue_is_agent_eligible 1559; then
+  printf 'rejected\n'
+fi
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "eligible\nrejected\n"
 
 
 def test_main_allows_existing_epic_pr_before_runtime_bootstrap(tmp_path: Path) -> None:
