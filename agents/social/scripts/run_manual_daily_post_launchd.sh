@@ -8,6 +8,7 @@ REPO_DIR="${HUSHLINE_SOCIAL_REPO_DIR:-$DEFAULT_SOCIAL_REPO_DIR}"
 export HUSHLINE_SOCIAL_REPO_DIR="$REPO_DIR"
 source "$AGENTS_REPO_DIR/agents/social/scripts/lib/load-launchd-env.sh"
 source "$AGENTS_REPO_DIR/agents/social/scripts/lib/social-platforms.sh"
+source "$AGENTS_REPO_DIR/agents/social/scripts/lib/social-repo-run-lock.sh"
 source "$AGENTS_REPO_DIR/agents/social/scripts/lib/update-run-repos.sh"
 LOCK_DIR="$REPO_DIR/.tmp/manual-daily-post.lock"
 ENV_FILE=""
@@ -88,6 +89,35 @@ update_repo() {
   update_daily_planning_repos "$REPO_DIR" "$AUTO_GIT_PULL" "$AUTO_GIT_CLEAN"
 }
 
+run_manual_post() {
+  update_repo
+  resolve_next_archive_key "$(effective_date)"
+
+  echo "Selected archive container: $ARCHIVE_KEY"
+
+  cd "$REPO_DIR"
+  "$AGENTS_REPO_DIR/agents/social/scripts/agent_daily_social_planner.sh" --date "$(effective_date)" --archive-key "$ARCHIVE_KEY"
+  linkedin_cmd=(
+    "$AGENTS_REPO_DIR/agents/social/scripts/agent_daily_linkedin_publisher.sh"
+    --date "$(effective_date)"
+    --archive-key "$ARCHIVE_KEY"
+  )
+
+  if social_mastodon_enabled; then
+    linkedin_cmd+=(--no-push)
+  fi
+
+  "${linkedin_cmd[@]}"
+
+  if social_mastodon_enabled; then
+    "$AGENTS_REPO_DIR/agents/social/scripts/agent_daily_mastodon_publisher.sh" \
+      --date "$(effective_date)" \
+      --archive-key "$ARCHIVE_KEY"
+  else
+    echo "Mastodon publisher disabled; set HUSHLINE_SOCIAL_MASTODON_ENABLED=1 to enable it."
+  fi
+}
+
 resolve_next_archive_key() {
   local target_date="$1"
   local archive_root="$REPO_DIR/previous-posts"
@@ -140,29 +170,7 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] Starting manual daily post wrapper."
 
 parse_args "$@"
 skip_if_weekend
-update_repo
-resolve_next_archive_key "$(effective_date)"
-
-echo "Selected archive container: $ARCHIVE_KEY"
-
-cd "$REPO_DIR"
-"$AGENTS_REPO_DIR/agents/social/scripts/agent_daily_social_planner.sh" --date "$(effective_date)" --archive-key "$ARCHIVE_KEY"
-linkedin_cmd=(
-  "$AGENTS_REPO_DIR/agents/social/scripts/agent_daily_linkedin_publisher.sh"
-  --date "$(effective_date)"
-  --archive-key "$ARCHIVE_KEY"
-)
-
-if social_mastodon_enabled; then
-  linkedin_cmd+=(--no-push)
-fi
-
-"${linkedin_cmd[@]}"
-
-if social_mastodon_enabled; then
-  "$AGENTS_REPO_DIR/agents/social/scripts/agent_daily_mastodon_publisher.sh" \
-    --date "$(effective_date)" \
-    --archive-key "$ARCHIVE_KEY"
-else
-  echo "Mastodon publisher disabled; set HUSHLINE_SOCIAL_MASTODON_ENABLED=1 to enable it."
-fi
+with_social_repo_run_lock \
+  "$REPO_DIR" \
+  "manual daily post for $(effective_date)" \
+  run_manual_post

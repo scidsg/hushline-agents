@@ -613,7 +613,7 @@ class SameDomainPublicRedirectHandler(urllib.request.HTTPRedirectHandler):
         self.allowed_domain = allowed_domain
         super().__init__()
 
-    def redirect_request(  # noqa: PLR0913 - urllib redirect hook signature.
+    def redirect_request(  # noqa: PLR0913, PLR0917 - urllib redirect hook signature.
         self,
         req: urllib.request.Request,
         fp: Any,
