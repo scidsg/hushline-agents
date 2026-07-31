@@ -1582,6 +1582,206 @@ printf 'rc=%s\\n' "$rc"
     ) in result.stderr
 
 
+def test_active_ruleset_bypass_recognizes_hushline_dev() -> None:
+    ruleset_json = json.dumps(
+        {
+            "id": 13078734,
+            "name": "main-strict-required-checks",
+            "target": "branch",
+            "enforcement": "active",
+            "conditions": {"ref_name": {"include": ["refs/heads/main"]}},
+            "bypass_actors": [
+                {
+                    "actor_id": 166439242,
+                    "actor_type": "User",
+                    "bypass_mode": "always",
+                }
+            ],
+            "rules": [{"type": "pull_request"}],
+        }
+    )
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+REPO_SLUG=scidsg/hushline
+BASE_BRANCH=main
+BOT_LOGIN=hushline-dev
+gh() {{
+  case "$2" in
+    user)
+      printf '166439242\n'
+      ;;
+    repos/scidsg/hushline/rulesets)
+      printf '13078734\n'
+      ;;
+    repos/scidsg/hushline/rulesets/13078734)
+      printf '%s\n' {shlex.quote(ruleset_json)}
+      ;;
+    *)
+      printf 'unexpected gh invocation: %s\n' "$*" >&2
+      return 99
+      ;;
+  esac
+}}
+bot_has_active_branch_ruleset_bypass
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    assert (
+        "Confirmed hushline-dev review bypass in active ruleset "
+        "'main-strict-required-checks' (13078734)."
+    ) in result.stdout
+    assert "unexpected" not in result.stderr
+
+
+def test_bypass_readiness_requires_green_checks_and_resolved_threads() -> None:
+    head_oid = "d" * 40
+    feedback_json = json.dumps(
+        {"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": []}}}}}
+    )
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+REPO_SLUG=scidsg/hushline
+gh() {{
+  if [[ "$1 $2 $3" == "pr view 2341" ]]; then
+    printf 'OPEN\t{head_oid}\tMERGEABLE\tBLOCKED\t0\t0\n'
+    return 0
+  fi
+  if [[ "$1 $2 $3" == "pr checks 2341" ]]; then
+    return 0
+  fi
+  printf 'unexpected gh invocation: %s\n' "$*" >&2
+  return 99
+}}
+fetch_pr_feedback_json() {{
+  printf '%s\n' {shlex.quote(feedback_json)}
+}}
+wait_for_pr_bypass_readiness 2341 {head_oid}
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    assert (
+        "Dependabot PR #2341 is ready for review-only bypass: all checks pass, "
+        "the head is unchanged, the branch is mergeable, and review threads "
+        "are resolved."
+    ) in result.stdout
+    assert "unexpected" not in result.stderr
+
+
+def test_dependabot_policy_merge_uses_admin_only_after_readiness(
+    tmp_path: Path,
+) -> None:
+    call_log = tmp_path / "calls.txt"
+    head_oid = "e" * 40
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+REPO_SLUG=scidsg/hushline
+BOT_LOGIN=hushline-dev
+bot_has_active_branch_ruleset_bypass() {{
+  printf 'bypass-confirmed\n' >> {shlex.quote(str(call_log))}
+}}
+wait_for_pr_bypass_readiness() {{
+  printf 'ready:%s:%s\n' "$1" "$2" >> {shlex.quote(str(call_log))}
+}}
+gh() {{
+  printf 'gh:%s\n' "$*" >> {shlex.quote(str(call_log))}
+}}
+merge_dependabot_pr_with_policy 2341 {head_oid}
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    assert call_log.read_text(encoding="utf-8").splitlines() == [
+        "bypass-confirmed",
+        f"ready:2341:{head_oid}",
+        (
+            "gh:pr merge 2341 --repo scidsg/hushline --admin --squash "
+            f"--delete-branch --match-head-commit {head_oid}"
+        ),
+    ]
+    assert "after all non-review protections passed" in result.stdout
+
+
+def test_normalize_legacy_unverified_dependabot_tail_uses_exact_lease(
+    tmp_path: Path,
+) -> None:
+    call_log = tmp_path / "calls.txt"
+    dependabot_sha = "a" * 40
+    first_legacy_sha = "b" * 40
+    head_oid = "c" * 40
+    replacement_base = "f" * 40
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+REPO_SLUG=scidsg/hushline
+BOT_GIT_NAME=hushline-dev
+BOT_LEGACY_GIT_EMAIL=git-dev@scidsg.org
+gh() {{
+  case "$2" in
+    repos/scidsg/hushline/commits/{dependabot_sha})
+      printf 'true\tvalid\tdependabot[bot]\n'
+      ;;
+    repos/scidsg/hushline/commits/{first_legacy_sha}|repos/scidsg/hushline/commits/{head_oid})
+      printf 'false\tno_user\t-\n'
+      ;;
+    *)
+      return 99
+      ;;
+  esac
+}}
+git() {{
+  case "${{1-}} ${{2-}} ${{3-}}" in
+    "rev-list --reverse origin/main..HEAD")
+      printf '%s\n%s\n%s\n' {dependabot_sha} {first_legacy_sha} {head_oid}
+      ;;
+    "show -s --format=%an%x09%ae")
+      printf 'hushline-dev\tgit-dev@scidsg.org\n'
+      ;;
+    verify-commit*)
+      return 0
+      ;;
+    "rev-parse HEAD ")
+      printf '%s\n' {head_oid}
+      ;;
+    "ls-remote origin refs/heads/dependabot/test")
+      printf '%s\trefs/heads/dependabot/test\n' {head_oid}
+      ;;
+    "rev-parse {first_legacy_sha}^ ")
+      printf '%s\n' {replacement_base}
+      ;;
+    "reset --soft {replacement_base}"|"commit -m build(deps): complete Dependabot update #2341")
+      printf 'git:%s\n' "$*" >> {shlex.quote(str(call_log))}
+      ;;
+    "push --force-with-lease=refs/heads/dependabot/test:{head_oid} origin")
+      printf 'git:%s\n' "$*" >> {shlex.quote(str(call_log))}
+      ;;
+    *)
+      printf 'unexpected git invocation: %s\n' "$*" >&2
+      return 99
+      ;;
+  esac
+}}
+normalize_legacy_unverified_dependabot_tail 2341 dependabot/test
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    calls = call_log.read_text(encoding="utf-8").splitlines()
+    assert f"git:reset --soft {replacement_base}" in calls
+    assert "git:commit -m build(deps): complete Dependabot update #2341" in calls
+    assert (
+        "git:push "
+        f"--force-with-lease=refs/heads/dependabot/test:{head_oid} origin "
+        "HEAD:refs/heads/dependabot/test"
+    ) in calls
+    assert "Replaced 2 locally signed legacy runner commit(s)" in result.stdout
+    assert "unexpected" not in result.stderr
+
+
 def test_main_resumes_in_progress_issue_before_selecting_new_work(
     tmp_path: Path,
 ) -> None:

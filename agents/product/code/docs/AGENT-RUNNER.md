@@ -56,9 +56,9 @@ assigned GitHub issue into one reviewed pull request.
 2. Read every open Dependabot Security-tab alert and process every open, non-draft, same-repository PR authored by the exact trusted Dependabot identity, oldest first.
 3. For each dependency PR, inspect release/advisory and open-alert context plus affected package usage across application, tests, build, CI, and operations; apply all required compatibility and security work.
 4. Run Python and Node vulnerability audits first, verify changed Node lockfiles with an integrity-enforcing clean install, then run `make lint` and `make test`.
-5. Require GitHub to report every commit in the dependency branch range as remotely verified before approval or auto-merge.
-6. Approve only when the PR tip is still authored by Dependabot, enable squash auto-merge, and wait for repository protections. A runner-authored compatibility commit must receive independent last-push approval.
-7. When alerts remain after the Dependabot PR queue drains, create or resume the dedicated signed `codex/dependabot-security-remediation` PR, validate it, and enable protected auto-merge.
+5. Require GitHub to report every commit in the dependency branch range as remotely verified. A contiguous tail of locally verified runner commits using the retired runner email is replaced, with an exact force-with-lease, by one signed commit using the mapped `hushline-dev` identity.
+6. When the active branch ruleset explicitly grants `hushline-dev` pull-request bypass, wait for every check to finish successfully, require an unchanged and mergeable head with no unresolved review threads, then use the bypass only for the review gate and squash-merge. Without that explicit bypass, retain the approval and protected auto-merge path.
+7. When alerts remain after the Dependabot PR queue drains, create or resume the dedicated signed `codex/dependabot-security-remediation` PR, validate it, and merge it through the same protection-aware policy.
 8. Keep ordinary issue work deferred while any Dependabot PR or security alert remains open, but continue assessing other open Dependabot PRs when one is awaiting approval.
 9. After dependency maintenance drains, select exactly one assigned issue from the configured project queue, or the issue passed with `--issue`.
 10. Make the smallest safe code, test, or documentation changes needed for that issue.
@@ -473,6 +473,7 @@ The runner now performs an SSH signing preflight immediately after configuring g
 - `HUSHLINE_DEPENDABOT_COMMIT_LOGIN` (default `dependabot[bot]`; exact trusted tip-commit author identity)
 - `HUSHLINE_BOT_GIT_NAME` (default `HUSHLINE_BOT_LOGIN`)
 - `HUSHLINE_BOT_GIT_EMAIL` (default `166439242+hushline-dev@users.noreply.github.com`, which GitHub maps to the `hushline-dev` account for remote signature verification)
+- `HUSHLINE_BOT_LEGACY_GIT_EMAIL` (default `git-dev@scidsg.org`; the only retired runner identity eligible for locally verified tail normalization)
 - `HUSHLINE_BOT_GIT_GPG_FORMAT` (default `ssh`)
 - `HUSHLINE_BOT_GIT_SIGNING_KEY` (optional; when unset the runner reuses existing SSH git signing config if available)
 - `HUSHLINE_BOT_GIT_DEFAULT_SSH_SIGNING_KEY_PATH` (optional; no default)
@@ -501,7 +502,7 @@ The runner now performs an SSH signing preflight immediately after configuring g
 - `HUSHLINE_DAILY_POST_PR_FEEDBACK_DELAY_SECONDS` (default `600`; non-negative integer; set `0` to skip continuous PR feedback monitoring; when enabled, the issue runner keeps the PR branch checked out and polls until the PR closes)
 - `HUSHLINE_DAILY_RUNNER_LOCK_DIR` (default `${TMPDIR:-/tmp}/hushline-code-agent.lock`)
 - `HUSHLINE_DEPENDABOT_MERGE_POLL_SECONDS` (default `30`; positive integer)
-- `HUSHLINE_DEPENDABOT_MERGE_WAIT_SECONDS` (default `1800`; non-negative integer; maximum time to wait for each protected auto-merge before continuing the dependency pass)
+- `HUSHLINE_DEPENDABOT_MERGE_WAIT_SECONDS` (default `1800`; non-negative integer; maximum time to wait for protected checks or fallback auto-merge before continuing the dependency pass)
 - `HUSHLINE_CODEX_MODEL` (default `gpt-5.6-sol`)
 - `HUSHLINE_CODEX_REASONING_EFFORT` (default `high`)
 - `HUSHLINE_DAILY_VERBOSE_CODEX_OUTPUT` (default `0`; set `1` to stream full Codex transcript output to the live console; transcript output is still excluded from persisted runner logs)
