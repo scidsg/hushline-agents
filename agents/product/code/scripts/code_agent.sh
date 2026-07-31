@@ -4812,11 +4812,6 @@ wait_for_pr_bypass_readiness() {
     gh pr checks "$pr_number" --repo "$REPO_SLUG" --required >/dev/null 2>&1
     required_rc=$?
     set -e
-    if (( required_rc != 0 && required_rc != 8 )); then
-      echo "Blocked: required checks are not passing for Dependabot PR #${pr_number}; review bypass will not be used." >&2
-      return 1
-    fi
-
     if (( pending_checks == 0 && required_rc == 0 )); then
       if [[ "$mergeable" != "MERGEABLE" \
         || "$merge_state" == "BEHIND" \
@@ -4887,6 +4882,17 @@ merge_dependabot_pr_with_policy() {
   wait_for_dependabot_pr_terminal_state "$pr_number"
 }
 
+github_commit_is_bot_authored() {
+  local commit_sha="$1"
+  local author_login=""
+
+  author_login="$(
+    gh api "repos/${REPO_SLUG}/commits/${commit_sha}" \
+      --jq '.author.login // ""'
+  )" || return 1
+  [[ "$author_login" == "$BOT_LOGIN" ]]
+}
+
 process_dependabot_pr() {
   local pr_number="$1"
   local pr_title="$2"
@@ -4920,6 +4926,16 @@ process_dependabot_pr() {
     git checkout -B "$head_branch" "refs/remotes/origin/dependabot-pr-${pr_number}"
   run_step "Remove untracked files" git clean -ffd
   run_step "Configure bot git identity" configure_bot_git_identity
+
+  if github_commit_is_bot_authored "$expected_head_oid" \
+    && assert_remote_commit_range_verified \
+      "origin/main" \
+      HEAD \
+      "Dependabot PR #${pr_number}"; then
+    echo "Resuming protected merge for previously validated runner-authored Dependabot PR #${pr_number}; local dependency validation will not be repeated."
+    merge_dependabot_pr_with_policy "$pr_number" "$expected_head_oid"
+    return $?
+  fi
 
   run_step "Stop and remove Docker resources" docker compose down -v --remove-orphans
   run_step "Kill all Docker containers" kill_all_docker_containers

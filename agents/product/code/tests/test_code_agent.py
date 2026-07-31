@@ -1671,6 +1671,48 @@ wait_for_pr_bypass_readiness 2341 {head_oid}
     assert "unexpected" not in result.stderr
 
 
+def test_bypass_readiness_waits_when_required_checks_are_not_reported(
+    tmp_path: Path,
+) -> None:
+    head_oid = "d" * 40
+    check_counter = tmp_path / "check-counter.txt"
+    check_counter.write_text("0\n", encoding="utf-8")
+    feedback_json = json.dumps(
+        {"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": []}}}}}
+    )
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+REPO_SLUG=scidsg/hushline
+gh() {{
+  if [[ "$1 $2 $3" == "pr view 2341" ]]; then
+    printf 'OPEN\t{head_oid}\tMERGEABLE\tBLOCKED\t0\t0\n'
+    return 0
+  fi
+  if [[ "$1 $2 $3" == "pr checks 2341" ]]; then
+    local count
+    count="$(< {shlex.quote(str(check_counter))})"
+    printf '%s\n' "$((count + 1))" > {shlex.quote(str(check_counter))}
+    if (( count == 0 )); then
+      return 1
+    fi
+    return 0
+  fi
+  return 99
+}}
+fetch_pr_feedback_json() {{
+  printf '%s\n' {shlex.quote(feedback_json)}
+}}
+sleep() {{ :; }}
+wait_for_pr_bypass_readiness 2341 {head_oid}
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    assert "required_checks_rc=1" in result.stdout
+    assert "is ready for review-only bypass" in result.stdout
+
+
 def test_dependabot_policy_merge_uses_admin_only_after_readiness(
     tmp_path: Path,
 ) -> None:
@@ -1704,6 +1746,48 @@ merge_dependabot_pr_with_policy 2341 {head_oid}
         ),
     ]
     assert "after all non-review protections passed" in result.stdout
+
+
+def test_process_dependabot_pr_resumes_verified_runner_tip_before_docker(
+    tmp_path: Path,
+) -> None:
+    call_log = tmp_path / "calls.txt"
+    head_oid = "e" * 40
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+run_step() {{
+  shift
+  "$@"
+}}
+git() {{
+  if [[ "${{1-}} ${{2-}}" == "ls-remote origin" ]]; then
+    printf '%s\trefs/heads/dependabot/test\n' {head_oid}
+  fi
+}}
+configure_bot_git_identity() {{ :; }}
+github_commit_is_bot_authored() {{ return 0; }}
+assert_remote_commit_range_verified() {{ return 0; }}
+merge_dependabot_pr_with_policy() {{
+  printf 'merge:%s:%s\n' "$1" "$2" >> {shlex.quote(str(call_log))}
+}}
+docker() {{
+  printf 'unexpected-docker\n' >> {shlex.quote(str(call_log))}
+  return 99
+}}
+process_dependabot_pr \
+  2341 \
+  "Dependency update" \
+  dependabot/test \
+  {head_oid} \
+  https://example.test/pr/2341 \
+  '[]'
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    assert call_log.read_text(encoding="utf-8").splitlines() == [f"merge:2341:{head_oid}"]
+    assert "Resuming protected merge" in result.stdout
 
 
 def test_normalize_legacy_unverified_dependabot_tail_uses_exact_lease(
