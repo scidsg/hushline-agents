@@ -4893,6 +4893,107 @@ github_commit_is_bot_authored() {
   [[ "$author_login" == "$BOT_LOGIN" ]]
 }
 
+assert_dependabot_rebase_commit_ownership() {
+  local pr_number="$1"
+  local commit_sha=""
+  local verification=""
+  local verified=""
+  local author_login=""
+  local author_identity=""
+  local author_name=""
+  local author_email=""
+
+  while IFS= read -r commit_sha; do
+    [[ -n "$commit_sha" ]] || continue
+    verification="$(
+      gh api "repos/${REPO_SLUG}/commits/${commit_sha}" \
+        --jq '[.commit.verification.verified, (.author.login // "-")] | @tsv'
+    )" || return 1
+    IFS=$'\t' read -r verified author_login <<< "$verification"
+    if [[ "$verified" == "true" && "$author_login" == "dependabot[bot]" ]]; then
+      continue
+    fi
+
+    author_identity="$(git show -s --format='%an%x09%ae' "$commit_sha")"
+    IFS=$'\t' read -r author_name author_email <<< "$author_identity"
+    if [[ "$author_name" == "$BOT_GIT_NAME" \
+      && ( "$author_email" == "$BOT_GIT_EMAIL" \
+        || "$author_email" == "$BOT_LEGACY_GIT_EMAIL" ) ]] \
+      && git verify-commit "$commit_sha" >/dev/null 2>&1; then
+      continue
+    fi
+
+    echo "Blocked: out-of-date Dependabot PR #${pr_number} contains commit ${commit_sha:0:12} that is neither remotely verified Dependabot work nor locally verified runner work; refusing to rewrite it." >&2
+    return 1
+  done < <(git rev-list --reverse "origin/${BASE_BRANCH}..HEAD")
+}
+
+rebase_dependabot_pr_onto_current_base() {
+  local pr_number="$1"
+  local head_branch="$2"
+  local expected_head_oid="$3"
+  local conflict_path=""
+  local conflict_count=0
+  local remote_head_oid=""
+
+  DEPENDABOT_REBASED_HEAD_OID="$expected_head_oid"
+  DEPENDABOT_REBASE_HAS_CHANGES=1
+  DEPENDABOT_REBASE_PERFORMED=0
+  if git merge-base --is-ancestor "origin/${BASE_BRANCH}" HEAD; then
+    return 0
+  fi
+
+  echo "Dependabot PR #${pr_number} is out of date; rebasing it onto current ${BASE_BRANCH}."
+  if ! assert_dependabot_rebase_commit_ownership "$pr_number"; then
+    return 1
+  fi
+  if ! git rebase "origin/${BASE_BRANCH}"; then
+    while IFS= read -r conflict_path; do
+      [[ -n "$conflict_path" ]] || continue
+      conflict_count=$((conflict_count + 1))
+      if [[ "$conflict_path" != "package-lock.json" ]]; then
+        git rebase --abort >/dev/null 2>&1 || true
+        echo "Blocked: rebase conflict in ${conflict_path} requires dependency-specific assessment for Dependabot PR #${pr_number}." >&2
+        return 1
+      fi
+    done < <(git diff --name-only --diff-filter=U)
+    if (( conflict_count == 0 )); then
+      git rebase --abort >/dev/null 2>&1 || true
+      echo "Blocked: Dependabot PR #${pr_number} rebase failed without a resolvable conflict." >&2
+      return 1
+    fi
+
+    git rebase --abort
+    echo "Resolving package-lock.json conflict by retaining the Dependabot dependency updates on top of current ${BASE_BRANCH}."
+    if ! git rebase -X theirs "origin/${BASE_BRANCH}"; then
+      git rebase --abort >/dev/null 2>&1 || true
+      echo "Blocked: package-lock.json conflict resolution failed for Dependabot PR #${pr_number}." >&2
+      return 1
+    fi
+  fi
+
+  remote_head_oid="$(
+    git ls-remote origin "refs/heads/${head_branch}" | awk 'NR == 1 { print $1 }'
+  )"
+  if [[ "$remote_head_oid" != "$expected_head_oid" ]]; then
+    echo "Blocked: Dependabot branch ${head_branch} moved during rebase; refusing to overwrite it." >&2
+    return 1
+  fi
+
+  DEPENDABOT_REBASED_HEAD_OID="$(git rev-parse HEAD)"
+  DEPENDABOT_REBASE_PERFORMED=1
+  git push \
+    "--force-with-lease=refs/heads/${head_branch}:${expected_head_oid}" \
+    origin \
+    "HEAD:refs/heads/${head_branch}"
+  echo "Rebased Dependabot PR #${pr_number} onto current ${BASE_BRANCH} and pushed the signed result with an exact lease."
+
+  if ! branch_has_unique_commits "origin/${BASE_BRANCH}" HEAD; then
+    DEPENDABOT_REBASE_HAS_CHANGES=0
+    echo "Dependabot PR #${pr_number} has no remaining commits after rebase; no merge action is required."
+  fi
+}
+
 process_dependabot_pr() {
   local pr_number="$1"
   local pr_title="$2"
@@ -4927,7 +5028,19 @@ process_dependabot_pr() {
   run_step "Remove untracked files" git clean -ffd
   run_step "Configure bot git identity" configure_bot_git_identity
 
-  if github_commit_is_bot_authored "$expected_head_oid" \
+  if ! rebase_dependabot_pr_onto_current_base \
+    "$pr_number" \
+    "$head_branch" \
+    "$expected_head_oid"; then
+    return 1
+  fi
+  expected_head_oid="$DEPENDABOT_REBASED_HEAD_OID"
+  if (( DEPENDABOT_REBASE_HAS_CHANGES == 0 )); then
+    return 0
+  fi
+
+  if (( DEPENDABOT_REBASE_PERFORMED == 0 )) \
+    && github_commit_is_bot_authored "$expected_head_oid" \
     && assert_remote_commit_range_verified \
       "origin/main" \
       HEAD \
