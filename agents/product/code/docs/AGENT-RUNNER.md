@@ -49,15 +49,21 @@ This runner runs directly in the local repo and performs a narrow local gate bef
 
 ## Operational Contract
 
-The issue runner has one job: turn one assigned GitHub issue into one reviewed pull request.
+The code runner has two ordered jobs: drain trusted Dependabot maintenance, then turn one
+assigned GitHub issue into one reviewed pull request.
 
-1. Pull the latest base branch after an issue is selected and cheap GitHub guards pass.
-2. Select exactly one assigned issue from the configured project queue, or the issue passed with `--issue`.
-3. Make the smallest safe code, test, or documentation changes needed for that issue.
-4. Before opening or updating a PR, run `make lint` and `make test`; if either fails, repair the failure and rerun the checks.
-5. Open or update the PR only when there are meaningful non-log changes and local validation is clean.
-6. Poll the open PR for actionable comments, review threads, change requests, and failing checks.
-7. Address and resolve actionable feedback, push the PR update, and continue polling until the PR is closed.
+1. Pull and clean the latest base branch before any PR or issue work.
+2. Process every open, non-draft, same-repository PR authored by the exact trusted Dependabot identity, oldest first.
+3. For each dependency PR, inspect release/advisory context and affected package usage across application, tests, build, CI, and operations; apply only required compatibility work.
+4. Run `make lint`, `make test`, `make audit-python`, `make audit-node-runtime`, and `make audit-node-full` for Node dependency updates.
+5. Approve only when the PR tip is still authored by Dependabot, enable squash auto-merge, and wait for repository protections. A runner-authored compatibility commit must receive independent last-push approval.
+6. Keep ordinary issue work deferred while any Dependabot PR remains open, but continue assessing other open Dependabot PRs when one is awaiting approval.
+7. After dependency maintenance drains, select exactly one assigned issue from the configured project queue, or the issue passed with `--issue`.
+8. Make the smallest safe code, test, or documentation changes needed for that issue.
+9. Before opening or updating an issue PR, run `make lint` and `make test`; if either fails, repair the failure and rerun the checks.
+10. Open or update the issue PR only when there are meaningful non-log changes and local validation is clean.
+11. Poll the open issue PR for actionable comments, review threads, change requests, and failing checks.
+12. Address and resolve actionable feedback, push the issue PR update, and continue polling until the PR is closed.
 
 Every queued issue is assumed to require a real change. Once the runner claims an issue, the only successful terminal outcome is a clean, usable PR. If an attempt does not complete a validated implementation, the issue stays claimed as `In Progress`; the next runner pass must resume that same assigned issue instead of selecting new work, returning it to the eligible queue, opening a diagnostic PR, or moving it to `Ready for Review`.
 
@@ -69,41 +75,49 @@ Every queued issue is assumed to require a real change. Once the runner claims a
 4. Change into the repo (`$HOME/hushline` by default).
 5. Hold the runner lock through all repository cleanup, including exit-time checkout/reset/clean work, so a launchd overlap cannot start a second issue while the prior run is still unwinding.
 6. Normalize the local agent-only checkout by discarding local worktree changes and switching to the base branch.
-7. Resume monitoring any open bot-authored issue PR whose head branch matches the daily issue branch pattern before selecting new issue work. This makes PR polling restart-resilient after launchd unloads, crashes, or reboots.
-8. Check cheap GitHub exit conditions before any new-work queue lookup or network sync/Docker work:
+7. Drain open Dependabot PRs before any ordinary PR guard or issue work:
+   - accept only the exact configured Dependabot identity, `main` base, same-repository branches, and the `dependabot/` head prefix
+   - process oldest first and continue through the initial open set even if one PR needs independent approval
+   - inspect package use across the whole repository and apply necessary compatibility, security, test, or documentation updates
+   - run lint, full tests, Python and Node runtime audits, plus the full Node audit for Node dependency metadata
+   - approve only an unchanged Dependabot-authored tip; never let the runner approve its own compatibility commit
+   - enable protected squash auto-merge and defer ordinary issue work until every dependency PR closes
+   - refresh and clean `main` after the dependency pass
+8. Resume monitoring any open bot-authored issue PR whose head branch matches the daily issue branch pattern before selecting new issue work. This makes PR polling restart-resilient after launchd unloads, crashes, or reboots.
+9. Check cheap GitHub exit conditions before any new-work queue lookup or network sync/Docker work:
    - exit if any open human-authored PR exists
-9. Select issue target before any network sync or Docker work:
+10. Select issue target before any network sync or Docker work:
    - resume the top open issue already in project status `In Progress`, otherwise
    - Use `--issue <n>` when provided (must still be open), otherwise
    - select the top open issue from project `Hush Line Roadmap`, column `Agent Eligible`.
-10. Check remaining cheap GitHub exit conditions before any network sync or Docker work:
+11. Check remaining cheap GitHub exit conditions before any network sync or Docker work:
 
 - for non-epic issues, exit if any other open PR exists from `hushline-dev`
 - for child issues with a GitHub parent epic, allow the long-lived epic PR (head branch `codex/epic-<epic>`) and the current child issue PR (head branch `codex/daily-issue-<issue>`)
 - for child issues with a GitHub parent epic, exit only if there are unrelated open bot PRs outside those allowed heads
 
-11. Hard-refresh local state only after an issue is selected and skip guards pass:
+12. Hard-refresh local state only after an issue is selected and skip guards pass:
 
 - `git fetch origin`
 - `git checkout main`
 - `git reset --hard origin/main`
 - `git clean -fd`
 
-12. Move the selected issue into project status `In Progress`.
-13. Configure bot git identity and signed commit settings.
-14. Reset local Docker/runtime state:
+13. Move the selected issue into project status `In Progress`.
+14. Configure bot git identity and signed commit settings.
+15. Reset local Docker/runtime state:
 
 - `docker compose down -v --remove-orphans`
 - Remove all Docker containers (`docker rm -f $(docker ps -aq)`, when any exist)
 - Kill processes listening on runner ports (`4566 4571 5432 8080` by default)
 
-15. Start and seed stack:
+16. Start and seed stack:
 
 - `docker compose up -d --build`
 - `docker compose run --rm dev_data`
 - retry the bootstrap sequence when Docker image pulls fail with transient registry/network errors (defaults: `3` attempts, `10`s delay via `HUSHLINE_DAILY_RUNTIME_BOOTSTRAP_ATTEMPTS` and `HUSHLINE_DAILY_RUNTIME_BOOTSTRAP_RETRY_DELAY_SECONDS`)
 
-16. Create/update work branch:
+17. Create/update work branch:
 
 - regular issues use `codex/daily-issue-<issue_number>` by default
 - child issues with a parent epic still use `codex/daily-issue-<issue_number>` as the work branch
@@ -111,13 +125,13 @@ Every queued issue is assumed to require a real change. Once the runner claims a
 - if the epic base branch does not exist yet, create and push it from `main` before starting the child branch
 - if the child issue branch already has an open PR, update that child PR instead of opening a duplicate
 
-17. Run a bounded Codex issue loop until repository changes exist (max attempts configurable via `HUSHLINE_DAILY_MAX_ISSUE_ATTEMPTS`, default `10`).
+18. Run a bounded Codex issue loop until repository changes exist (max attempts configurable via `HUSHLINE_DAILY_MAX_ISSUE_ATTEMPTS`, default `10`).
     - The issue/fix prompts tell Codex to avoid local container-backed make validation by default, and to defer validation entirely to the runner when schema-affecting files are touched (`hushline/model/`, `migrations/`, `scripts/dev_data.py`, `scripts/dev_migrations.py`).
     - The fix prompt includes the current branch diff summary, the prior Codex summary, and an extracted failure signature so Codex can repair the current implementation instead of repeating a narrow patch against the same failing symptom.
     - Raw failed check output is intentionally withheld from Codex prompts because local check logs may contain sensitive operational data.
     - Codex transcript output is hidden from the live console by default and is captured in a temporary file for the duration of the run. Transcript output is excluded from the persisted runner log; only the final Codex summary is written into the run log. Operators can opt in to live console streaming when needed.
     - Each Codex attempt logs prompt size and pre/post worktree snapshots so clean-tree no-op runs are visible in the runner log.
-18. Run required checks in a bounded self-heal loop (max attempts configurable via `HUSHLINE_DAILY_MAX_FIX_ATTEMPTS`, default `8`):
+19. Run required checks in a bounded self-heal loop (max attempts configurable via `HUSHLINE_DAILY_MAX_FIX_ATTEMPTS`, default `8`):
     - Before lint/test validation, if the working tree includes schema-affecting changes (`hushline/model/`, `migrations/`, `scripts/dev_data.py`, `scripts/dev_migrations.py`), rebuild the local runtime and reseed dev data so the live stack matches the current code.
     - `make lint`
     - `make test` (full suite)
@@ -125,24 +139,24 @@ Every queued issue is assumed to require a real change. Once the runner claims a
     - Lint failures only run deterministic `make fix` self-heal when the failure looks auto-fixable (for example Ruff formatting/check or Prettier); non-auto-fixable lint failures go straight back to Codex.
     - Runtime-dependent tests self-heal by restarting the local stack and reseeding dev data, then retrying once.
     - The broader CI workflow matrix still runs on the PR after branch push; the runner no longer tries to mirror that entire matrix locally.
-19. Persist a sanitized local run log to `logs/runs/run-<timestamp>-issue-<n>.txt`.
+20. Persist a sanitized local run log to `logs/runs/run-<timestamp>-issue-<n>.txt`.
     - After each persist, prune older runner logs and keep only the newest `10` by default.
     - Persisted logs are sanitized before retention to remove developer filesystem paths, emails, Codex session metadata, and common credential patterns.
-20. Commit, push branch, and open/update PR:
+21. Commit, push branch, and open/update PR:
     - first push uses a normal push when remote branch is absent
     - existing remote branch uses `--force-with-lease` with one stale-info recovery retry.
     - child issues under a parent epic open/update a child PR whose base branch is the shared epic branch
     - the long-lived epic PR, when present, remains the only PR that targets `main`
-21. Move the selected issue into project status `Ready for Review` once the PR exists.
-22. After the PR exists and before feedback polling starts, parse the latest line-specific `make test` coverage snapshot for any files with missed statements. If no open coverage-gap issue exists, open one follow-up issue with the exact missing line ranges, explicit 100% / zero-miss acceptance criteria, and instructions that the follow-up PR is not complete if it would create another coverage-gap issue. If an open coverage-gap issue already exists, add the new snapshot as a comment on that issue instead of opening another ticket. Ensure the coverage-gap issue is in the `Hush Line Roadmap` project in the `Agent Eligible` status.
-23. For child PRs targeting an epic branch, record `Linked issue: #<n>` in the PR body instead of relying on GitHub's default-branch-only close keywords.
-24. A dedicated workflow closes that linked child issue after the child PR is merged into the epic branch.
-25. State that the runner log is retained locally by `hushline-agents` and use a plain-language narrative lead for broad audiences, followed by the structured PR body sections (`Summary`, `Context`, `Changed Files`, `Validation`, `Manual Testing`).
+22. Move the selected issue into project status `Ready for Review` once the PR exists.
+23. After the PR exists and before feedback polling starts, parse the latest line-specific `make test` coverage snapshot for any files with missed statements. If no open coverage-gap issue exists, open one follow-up issue with the exact missing line ranges, explicit 100% / zero-miss acceptance criteria, and instructions that the follow-up PR is not complete if it would create another coverage-gap issue. If an open coverage-gap issue already exists, add the new snapshot as a comment on that issue instead of opening another ticket. Ensure the coverage-gap issue is in the `Hush Line Roadmap` project in the `Agent Eligible` status.
+24. For child PRs targeting an epic branch, record `Linked issue: #<n>` in the PR body instead of relying on GitHub's default-branch-only close keywords.
+25. A dedicated workflow closes that linked child issue after the child PR is merged into the epic branch.
+26. State that the runner log is retained locally by `hushline-agents` and use a plain-language narrative lead for broad audiences, followed by the structured PR body sections (`Summary`, `Context`, `Changed Files`, `Validation`, `Manual Testing`).
     - `Validation` lists automated checks run by the runner or CI.
     - `Manual Testing` lists human reviewer steps to exercise the changed feature after the PR opens. It is not a log of actions the LLM or runner performed.
-26. Refresh the local run log after PR creation, including the opened PR URL, coverage gap issue URL when created, and post-check steps.
-27. Poll the open PR until it closes. When the monitor sees human/reviewer feedback (discussion comments, change-request reviews, or unresolved review threads), it invokes Codex on the PR branch immediately, reruns `make lint` and `make test`, commits and pushes any fix, resolves addressed review threads, and resumes polling. When the only actionable item is a failing check, it waits for pending PR checks to settle before invoking Codex so transient in-progress checks do not trigger unnecessary fixes.
-28. Return to a clean `main` on normal completion or PR closure.
+27. Refresh the local run log after PR creation, including the opened PR URL, coverage gap issue URL when created, and post-check steps.
+28. Poll the open PR until it closes. When the monitor sees human/reviewer feedback (discussion comments, change-request reviews, or unresolved review threads), it invokes Codex on the PR branch immediately, reruns `make lint` and `make test`, commits and pushes any fix, resolves addressed review threads, and resumes polling. When the only actionable item is a failing check, it waits for pending PR checks to settle before invoking Codex so transient in-progress checks do not trigger unnecessary fixes.
+29. Return to a clean `main` on normal completion or PR closure.
     - If the run fails after creating branch work, cleanup resets the checkout back to a clean base branch.
     - A new scheduled pass discards local worktree changes and switches back to the base branch before evaluating GitHub queue guards.
 
@@ -178,8 +192,17 @@ Every queued issue is assumed to require a real change. Once the runner claims a
       |
       v
 +------------------------------------------------+
-| Refresh workspace                              |
+| Refresh + clean main                           |
 +------------------------------------------------+
+      |
+      v
++------------------------------------------------+
+| Open trusted Dependabot PRs?                   |
+| Assess whole-app impact, repair, audit, test   |
+| Approve unchanged bot tip + enable auto-merge  |
++------------------------------------------------+
+      |
+      +-- still open --> [Report dependency maintenance pending; defer issue work]
       |
       v
 +------------------------------------------------+
@@ -434,6 +457,8 @@ The runner now performs an SSH signing preflight immediately after configuring g
 - `HUSHLINE_REPO_SLUG` (default `scidsg/hushline`)
 - `HUSHLINE_BASE_BRANCH` (default `main`)
 - `HUSHLINE_BOT_LOGIN` (default `hushline-dev`)
+- `HUSHLINE_DEPENDABOT_LOGIN` (default `app/dependabot`; exact trusted PR author identity)
+- `HUSHLINE_DEPENDABOT_COMMIT_LOGIN` (default `dependabot[bot]`; exact trusted tip-commit author identity)
 - `HUSHLINE_BOT_GIT_NAME` (default `HUSHLINE_BOT_LOGIN`)
 - `HUSHLINE_BOT_GIT_EMAIL` (default `git-dev@scidsg.org`)
 - `HUSHLINE_BOT_GIT_GPG_FORMAT` (default `ssh`)
@@ -462,7 +487,9 @@ The runner now performs an SSH signing preflight immediately after configuring g
 - `HUSHLINE_DAILY_CODEX_STATUS_IDLE_CHECK_STATE_FILE` (default: a hidden sibling file next to `HUSHLINE_DAILY_RUNNER_LOCK_DIR`, for example `/tmp/.hushline-code-agent.lock.codex-status-last-check`; stores the last idle `/status` attempt timestamp without placing files inside the lock directory)
 - `HUSHLINE_DAILY_POST_PR_FEEDBACK_DELAY_SECONDS` (default `600`; non-negative integer; set `0` to skip continuous PR feedback monitoring; when enabled, the issue runner keeps the PR branch checked out and polls until the PR closes)
 - `HUSHLINE_DAILY_RUNNER_LOCK_DIR` (default `${TMPDIR:-/tmp}/hushline-code-agent.lock`)
-- `HUSHLINE_CODEX_MODEL` (default `gpt-5.5`)
+- `HUSHLINE_DEPENDABOT_MERGE_POLL_SECONDS` (default `30`; positive integer)
+- `HUSHLINE_DEPENDABOT_MERGE_WAIT_SECONDS` (default `1800`; non-negative integer; maximum time to wait for each protected auto-merge before continuing the dependency pass)
+- `HUSHLINE_CODEX_MODEL` (default `gpt-5.6-sol`)
 - `HUSHLINE_CODEX_REASONING_EFFORT` (default `high`)
 - `HUSHLINE_DAILY_VERBOSE_CODEX_OUTPUT` (default `0`; set `1` to stream full Codex transcript output to the live console; transcript output is still excluded from persisted runner logs)
 - `HUSHLINE_WEEKLY_AGENT_REPORT_FROM` (required for Mail.app delivery)

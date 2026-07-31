@@ -40,7 +40,7 @@ printf '%s %s\\n' "$CODEX_MODEL" "$CODEX_REASONING_EFFORT"
     result = _run_bash(shell_script)
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "gpt-5.5 high"
+    assert result.stdout.strip() == "gpt-5.6-sol high"
 
 
 def test_codex_model_status_label_formats_default_model_for_operators() -> None:
@@ -52,7 +52,7 @@ codex_model_status_label
     result = _run_bash(shell_script)
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "Codex 5.5 high"
+    assert result.stdout.strip() == "Codex 5.6-sol high"
 
 
 def test_parse_codex_account_label_uses_dynamic_chatgpt_email() -> None:
@@ -119,6 +119,7 @@ acquire_runner_lock() {{
   printf 'unexpected-lock\\n'
   return 99
 }}
+process_open_dependabot_prs() {{ return 0; }}
 main
 """
 
@@ -437,7 +438,7 @@ test -s "$CODEX_STATUS_IDLE_CHECK_STATE_FILE"
 
     assert result.returncode == 0, result.stderr
     assert "Hourly idle Codex /status check due" in result.stdout
-    assert "Codex model: Codex 5.5 high" in result.stdout
+    assert "Codex model: Codex 5.6-sol high" in result.stdout
     assert "Codex account: runner@example.com" in result.stdout
     assert "Codex /status: primary 300m window 51% used; 49% remaining" in result.stdout
 
@@ -874,6 +875,7 @@ collect_issue_candidates() {{
 start_runtime_stack_and_seed_dev_data() {{
   printf 'runtime-bootstrap\\n' >> {shlex.quote(str(call_log))}
 }}
+process_open_dependabot_prs() {{ return 0; }}
 main
 """
 
@@ -956,6 +958,7 @@ collect_issue_candidates() {{
 start_runtime_stack_and_seed_dev_data() {{
   printf 'runtime-bootstrap\\n' >> {shlex.quote(str(call_log))}
 }}
+process_open_dependabot_prs() {{ return 0; }}
 main
 """
 
@@ -1023,6 +1026,7 @@ collect_issue_candidates() {{
   printf 'collect-issue-candidates\\n' >> {shlex.quote(str(call_log))}
   printf '1558\\n'
 }}
+process_open_dependabot_prs() {{ return 0; }}
 main
 """
 
@@ -1083,6 +1087,7 @@ collect_issue_candidates() {{
   printf 'collect-issue-candidates\\n' >> {shlex.quote(str(call_log))}
   printf '1558\\n'
 }}
+process_open_dependabot_prs() {{ return 0; }}
 main
 """
 
@@ -1099,6 +1104,152 @@ main
     assert "count-open-bot-prs" not in calls
     assert "configure-bot-git" not in calls
     assert "runtime-bootstrap" not in calls
+
+
+def test_count_open_human_prs_excludes_dependabot_and_other_bots() -> None:
+    prs_json = json.dumps(
+        [
+            {"author": {"login": "alice"}},
+            {"author": {"login": "app/dependabot"}},
+            {"author": {"login": "dependabot[bot]"}},
+            {"author": {"login": "hushline-dev"}},
+            {"author": None},
+        ]
+    )
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+gh() {{ printf '%s\\n' {shlex.quote(prs_json)}; }}
+count_open_human_prs
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "1\n"
+
+
+def test_list_open_dependabot_prs_is_strict_and_oldest_first() -> None:
+    sha_old = "a" * 40
+    sha_new = "b" * 40
+    prs_json = json.dumps(
+        [
+            {
+                "number": 21,
+                "title": "Newer",
+                "author": {"login": "app/dependabot"},
+                "baseRefName": "main",
+                "headRefName": "dependabot/npm_and_yarn/newer-2",
+                "headRefOid": sha_new,
+                "createdAt": "2026-07-25T00:00:00Z",
+                "isDraft": False,
+                "isCrossRepository": False,
+                "url": "https://github.com/scidsg/hushline/pull/21",
+            },
+            {
+                "number": 20,
+                "title": "Older",
+                "author": {"login": "app/dependabot"},
+                "baseRefName": "main",
+                "headRefName": "dependabot/pip/older-2",
+                "headRefOid": sha_old,
+                "createdAt": "2026-07-24T00:00:00Z",
+                "isDraft": False,
+                "isCrossRepository": False,
+                "url": "https://github.com/scidsg/hushline/pull/20",
+            },
+            {
+                "number": 19,
+                "title": "Untrusted lookalike",
+                "author": {"login": "dependabot-helper"},
+                "baseRefName": "main",
+                "headRefName": "dependabot/pip/lookalike-2",
+                "headRefOid": "c" * 40,
+                "createdAt": "2026-07-23T00:00:00Z",
+                "isDraft": False,
+                "isCrossRepository": False,
+                "url": "https://github.com/scidsg/hushline/pull/19",
+            },
+        ]
+    )
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+gh() {{ printf '%s\\n' {shlex.quote(prs_json)}; }}
+list_open_dependabot_prs
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [
+        (
+            f"20\tOlder\tdependabot/pip/older-2\t{sha_old}\t"
+            "https://github.com/scidsg/hushline/pull/20"
+        ),
+        (
+            f"21\tNewer\tdependabot/npm_and_yarn/newer-2\t{sha_new}\t"
+            "https://github.com/scidsg/hushline/pull/21"
+        ),
+    ]
+
+
+def test_main_processes_dependabot_lane_before_human_pr_guard(tmp_path: Path) -> None:
+    call_log = tmp_path / "calls.txt"
+    repo_dir = tmp_path / "repo"
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+REPO_DIR={shlex.quote(str(repo_dir))}
+mkdir -p "$REPO_DIR/.git"
+parse_args() {{ :; }}
+initialize_run_state() {{ :; }}
+cleanup() {{ :; }}
+acquire_runner_lock() {{ :; }}
+assert_runner_can_take_checkout() {{
+  printf 'clean-checkout\\n' >> {shlex.quote(str(call_log))}
+}}
+require_cmd() {{ :; }}
+require_positive_integer() {{ :; }}
+require_non_negative_integer() {{ :; }}
+process_open_dependabot_prs() {{
+  printf 'dependabot-lane\\n' >> {shlex.quote(str(call_log))}
+  return 1
+}}
+resume_open_issue_pr_monitor_if_any() {{
+  printf 'resume-issue-pr\\n' >> {shlex.quote(str(call_log))}
+  return 1
+}}
+count_open_human_prs() {{
+  printf 'human-pr-guard\\n' >> {shlex.quote(str(call_log))}
+  printf '1\\n'
+}}
+main
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    assert call_log.read_text(encoding="utf-8").splitlines() == [
+        "clean-checkout",
+        "dependabot-lane",
+    ]
+
+
+def test_dependabot_approval_requires_dependabot_tip_commit(tmp_path: Path) -> None:
+    call_log = tmp_path / "calls.txt"
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+dependabot_is_latest_commit_author() {{ return 1; }}
+gh() {{
+  printf 'gh:%s\\n' "$*" >> {shlex.quote(str(call_log))}
+  return 0
+}}
+approve_dependabot_pr_if_eligible 2342
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    assert "preserving the independent last-push approval requirement" in result.stdout
+    assert not call_log.exists()
 
 
 def test_main_resumes_in_progress_issue_before_selecting_new_work(
@@ -1150,6 +1301,7 @@ count_open_bot_prs_excluding_heads() {{
   printf 'count-open-bot-prs-excluding-heads:%s\\n' "$*" >> {shlex.quote(str(call_log))}
   printf '1\\n'
 }}
+process_open_dependabot_prs() {{ return 0; }}
 main
 """
 
@@ -1215,6 +1367,7 @@ count_open_project_issues_in_status() {{
 collect_issue_candidates() {{
   printf 'collect-issue-candidates\\n' >> {shlex.quote(str(call_log))}
 }}
+process_open_dependabot_prs() {{ return 0; }}
 main
 """
 
@@ -1285,6 +1438,7 @@ start_runtime_stack_and_seed_dev_data() {{
 }}
 kill_all_docker_containers() {{ :; }}
 kill_processes_on_ports() {{ :; }}
+process_open_dependabot_prs() {{ return 0; }}
 main
 """
 
@@ -2317,6 +2471,7 @@ start_runtime_stack_and_seed_dev_data() {{
 }}
 kill_all_docker_containers() {{ :; }}
 kill_processes_on_ports() {{ :; }}
+process_open_dependabot_prs() {{ return 0; }}
 main
 """
 
@@ -2367,6 +2522,7 @@ start_runtime_stack_and_seed_dev_data() {{
 }}
 kill_all_docker_containers() {{ :; }}
 kill_processes_on_ports() {{ :; }}
+process_open_dependabot_prs() {{ return 0; }}
 main
 """
 
@@ -2486,6 +2642,7 @@ gh() {{
   fi
   return 0
 }}
+process_open_dependabot_prs() {{ return 0; }}
 main
 """
 
@@ -2667,6 +2824,7 @@ gh() {{
   fi
   return 0
 }}
+process_open_dependabot_prs() {{ return 0; }}
 main
 """
 
@@ -2743,12 +2901,13 @@ def test_persisted_runner_log_redacts_developer_metadata(tmp_path: Path) -> None
     run_log_file.write_text(
         "\n".join(
             [
-                "Runner Codex config: model=gpt-5.5 reasoning_effort=high verbose_codex_output=0",
+                "Runner Codex config: model=gpt-5.6-sol reasoning_effort=high "
+                "verbose_codex_output=0",
                 "Configured git identity: hushline-dev <git-dev@scidsg.org>",
                 "Run log file: /Users/developer/hushline/docs/agent-logs/run.log",
                 "Global log file: /Users/developer/.codex/logs/hushline-code-agent.log",
                 "workdir: /Users/developer/hushline",
-                "model: gpt-5.5",
+                "model: gpt-5.6-sol",
                 "provider: openai",
                 "approval: never",
                 (
@@ -5166,6 +5325,7 @@ write_pr_body() {{
     >> {shlex.quote(str(call_log))}
 }}
 check_pr_feedback_after_delay() {{ :; }}
+process_open_dependabot_prs() {{ return 0; }}
 gh() {{
   if [[ "${{1-}} ${{2-}} ${{3-}}" == "issue view 1558" ]]; then
     local last_arg="${{@: -1}}"
@@ -5306,6 +5466,7 @@ gh() {{
   fi
   return 0
 }}
+process_open_dependabot_prs() {{ return 0; }}
 main
 """
 
@@ -5403,6 +5564,7 @@ gh() {{
   fi
   return 0
 }}
+process_open_dependabot_prs() {{ return 0; }}
 main
 """
 
