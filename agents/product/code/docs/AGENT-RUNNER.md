@@ -56,14 +56,15 @@ assigned GitHub issue into one reviewed pull request.
 2. Read every open Dependabot Security-tab alert and process every open, non-draft, same-repository PR authored by the exact trusted Dependabot identity, oldest first.
 3. For each dependency PR, inspect release/advisory and open-alert context plus affected package usage across application, tests, build, CI, and operations; apply all required compatibility and security work.
 4. Run Python and Node vulnerability audits first, verify changed Node lockfiles with an integrity-enforcing clean install, then run `make lint` and `make test`.
-5. Approve only when the PR tip is still authored by Dependabot, enable squash auto-merge, and wait for repository protections. A runner-authored compatibility commit must receive independent last-push approval.
-6. When alerts remain after the Dependabot PR queue drains, create or resume the dedicated signed `codex/dependabot-security-remediation` PR, validate it, and enable protected auto-merge.
-7. Keep ordinary issue work deferred while any Dependabot PR or security alert remains open, but continue assessing other open Dependabot PRs when one is awaiting approval.
-8. After dependency maintenance drains, select exactly one assigned issue from the configured project queue, or the issue passed with `--issue`.
-9. Make the smallest safe code, test, or documentation changes needed for that issue.
-10. Before opening or updating an issue PR, run `make lint` and `make test`; if either fails, repair the failure and rerun the checks.
-11. Open or update the issue PR only when there are meaningful non-log changes and local validation is clean.
-12. Poll the open issue PR for actionable comments, review threads, change requests, and failing checks.
+5. Require GitHub to report every commit in the dependency branch range as remotely verified before approval or auto-merge.
+6. Approve only when the PR tip is still authored by Dependabot, enable squash auto-merge, and wait for repository protections. A runner-authored compatibility commit must receive independent last-push approval.
+7. When alerts remain after the Dependabot PR queue drains, create or resume the dedicated signed `codex/dependabot-security-remediation` PR, validate it, and enable protected auto-merge.
+8. Keep ordinary issue work deferred while any Dependabot PR or security alert remains open, but continue assessing other open Dependabot PRs when one is awaiting approval.
+9. After dependency maintenance drains, select exactly one assigned issue from the configured project queue, or the issue passed with `--issue`.
+10. Make the smallest safe code, test, or documentation changes needed for that issue.
+11. Before opening or updating an issue PR, run `make lint` and `make test`; if either fails, repair the failure and rerun the checks.
+12. Open or update the issue PR only when there are meaningful non-log changes and local validation is clean.
+13. Poll the open issue PR for actionable comments, review threads, change requests, and failing checks.
 13. Address and resolve actionable feedback, push the issue PR update, and continue polling until the PR is closed.
 
 Every queued issue is assumed to require a real change. Once the runner claims an issue, the only successful terminal outcome is a clean, usable PR. If an attempt does not complete a validated implementation, the issue stays claimed as `In Progress`; the next runner pass must resume that same assigned issue instead of selecting new work, returning it to the eligible queue, opening a diagnostic PR, or moving it to `Ready for Review`.

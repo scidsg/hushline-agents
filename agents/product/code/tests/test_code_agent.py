@@ -1510,6 +1510,78 @@ wait_for_dependabot_pr_terminal_state 2341
     assert "unexpected" not in result.stderr
 
 
+def test_remote_commit_range_verification_accepts_only_verified_commits() -> None:
+    first_sha = "a" * 40
+    second_sha = "b" * 40
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+REPO_SLUG=scidsg/hushline
+git() {{
+  if [[ "$1 $2 $3" == "rev-list --reverse origin/main..HEAD" ]]; then
+    printf '%s\\n%s\\n' {shlex.quote(first_sha)} {shlex.quote(second_sha)}
+    return 0
+  fi
+  printf 'unexpected git invocation: %s\\n' "$*" >&2
+  return 99
+}}
+gh() {{
+  case "$2" in
+    "repos/scidsg/hushline/commits/{first_sha}")
+      printf 'true\\tvalid\\tdependabot[bot]\\n'
+      ;;
+    "repos/scidsg/hushline/commits/{second_sha}")
+      printf 'true\\tvalid\\thushline-dev\\n'
+      ;;
+    *)
+      printf 'unexpected gh invocation: %s\\n' "$*" >&2
+      return 99
+      ;;
+  esac
+}}
+assert_remote_commit_range_verified \
+  origin/main \
+  HEAD \
+  "Dependabot PR #2341"
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    assert "GitHub remotely verified 2 commit(s) for Dependabot PR #2341." in result.stdout
+    assert "unexpected" not in result.stderr
+
+
+def test_remote_commit_range_verification_blocks_no_user_commit() -> None:
+    commit_sha = "c" * 40
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+REPO_SLUG=scidsg/hushline
+git() {{
+  printf '%s\\n' {shlex.quote(commit_sha)}
+}}
+gh() {{
+  printf 'false\\tno_user\\t-\\n'
+}}
+set +e
+assert_remote_commit_range_verified \
+  origin/main \
+  HEAD \
+  "Dependabot PR #2341"
+rc=$?
+set -e
+printf 'rc=%s\\n' "$rc"
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    assert "rc=1" in result.stdout
+    assert (
+        "Blocked: Dependabot PR #2341 commit cccccccccccc is not remotely "
+        "verified by GitHub (reason=no_user, author=-)."
+    ) in result.stderr
+
+
 def test_main_resumes_in_progress_issue_before_selecting_new_work(
     tmp_path: Path,
 ) -> None:
