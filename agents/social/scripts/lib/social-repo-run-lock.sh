@@ -20,6 +20,7 @@ with_social_repo_run_lock() (
   local deadline=0
   local announced_wait=0
   local owner_pid=""
+  local released_lock_dir=""
   local stale_lock_dir=""
 
   timeout="$(social_repo_lock_timeout_seconds)" || return $?
@@ -29,7 +30,7 @@ with_social_repo_run_lock() (
   while ! mkdir "$lock_dir" 2>/dev/null; do
     owner_pid=""
     if [[ -f "$lock_pid_file" ]]; then
-      owner_pid="$(tr -cd '0-9' < "$lock_pid_file")"
+      owner_pid="$(tr -cd '0-9' < "$lock_pid_file" 2>/dev/null || true)"
     fi
     if [[ -n "$owner_pid" ]] && ! kill -0 "$owner_pid" 2>/dev/null; then
       stale_lock_dir="${lock_dir}.stale.$$"
@@ -55,8 +56,11 @@ with_social_repo_run_lock() (
   printf '%s\n' "$$" > "$lock_pid_file"
 
   cleanup_social_repo_run_lock() {
-    rm -f "$lock_pid_file"
-    rmdir "$lock_dir" 2>/dev/null || true
+    released_lock_dir="${lock_dir}.released.$$"
+    if mv "$lock_dir" "$released_lock_dir" 2>/dev/null; then
+      rm -f "$released_lock_dir/pid"
+      rmdir "$released_lock_dir" 2>/dev/null || true
+    fi
   }
   trap cleanup_social_repo_run_lock EXIT
 
