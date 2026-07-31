@@ -1790,6 +1790,71 @@ process_dependabot_pr \
     assert "Resuming protected merge" in result.stdout
 
 
+def test_rebase_dependabot_pr_resolves_lock_conflict_and_uses_exact_lease(
+    tmp_path: Path,
+) -> None:
+    call_log = tmp_path / "calls.txt"
+    head_oid = "e" * 40
+    rebased_oid = "f" * 40
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+BASE_BRANCH=main
+rebase_attempt=0
+expected_push="push --force-with-lease=refs/heads/dependabot/test:{head_oid}"
+expected_push+=" origin HEAD:refs/heads/dependabot/test"
+assert_dependabot_rebase_commit_ownership() {{ return 0; }}
+git() {{
+  printf 'git:%s\n' "$*" >> {shlex.quote(str(call_log))}
+  case "$*" in
+    "merge-base --is-ancestor origin/main HEAD") return 1 ;;
+    "rebase origin/main")
+      return 1
+      ;;
+    "diff --name-only --diff-filter=U")
+      printf 'package-lock.json\n'
+      ;;
+    "rebase --abort")
+      ;;
+    "rebase -X theirs origin/main")
+      ;;
+    "ls-remote origin refs/heads/dependabot/test")
+      printf '%s\trefs/heads/dependabot/test\n' {head_oid}
+      ;;
+    "rev-parse HEAD")
+      printf '%s\n' {rebased_oid}
+      ;;
+    "$expected_push")
+      ;;
+    *) return 99 ;;
+  esac
+}}
+branch_has_unique_commits() {{ return 0; }}
+rebase_dependabot_pr_onto_current_base \
+  2342 \
+  dependabot/test \
+  {head_oid}
+printf 'result:%s:%s:%s\n' \
+  "$DEPENDABOT_REBASED_HEAD_OID" \
+  "$DEPENDABOT_REBASE_HAS_CHANGES" \
+  "$DEPENDABOT_REBASE_PERFORMED" \
+  >> {shlex.quote(str(call_log))}
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    calls = call_log.read_text(encoding="utf-8").splitlines()
+    assert "git:rebase origin/main" in calls
+    assert "git:rebase --abort" in calls
+    assert "git:rebase -X theirs origin/main" in calls
+    assert (
+        "git:push --force-with-lease=refs/heads/dependabot/test:"
+        f"{head_oid} origin HEAD:refs/heads/dependabot/test"
+    ) in calls
+    assert calls[-1] == f"result:{rebased_oid}:1:1"
+    assert "Resolving package-lock.json conflict" in result.stdout
+
+
 def test_normalize_legacy_unverified_dependabot_tail_uses_exact_lease(
     tmp_path: Path,
 ) -> None:
