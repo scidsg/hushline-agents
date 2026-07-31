@@ -4573,6 +4573,7 @@ normalize_legacy_unverified_dependabot_tail() {
   local lease_oid=""
   local remote_head_oid=""
   local legacy_count=0
+  local owned_tail_count=0
   local saw_legacy=0
 
   while IFS= read -r commit_sha; do
@@ -4588,8 +4589,19 @@ normalize_legacy_unverified_dependabot_tail() {
     IFS=$'\t' read -r verified reason author_login <<< "$verification"
     if [[ "$verified" == "true" ]]; then
       if (( saw_legacy == 1 )); then
-        echo "Blocked: verified commit ${commit_sha:0:12} follows an unverified runner commit in Dependabot PR #${pr_number}; refusing to rewrite non-tail history." >&2
-        return 1
+        author_identity="$(git show -s --format='%an%x09%ae' "$commit_sha")"
+        IFS=$'\t' read -r author_name author_email <<< "$author_identity"
+        if [[ "$author_name" != "$BOT_GIT_NAME" \
+          || "$author_email" != "$BOT_GIT_EMAIL" \
+          || "$author_login" != "$BOT_LOGIN" ]]; then
+          echo "Blocked: verified non-runner commit ${commit_sha:0:12} follows an unverified runner commit in Dependabot PR #${pr_number}; refusing to rewrite non-owned history." >&2
+          return 1
+        fi
+        if ! git verify-commit "$commit_sha" >/dev/null 2>&1; then
+          echo "Blocked: current runner commit ${commit_sha:0:12} in Dependabot PR #${pr_number} does not have a valid local cryptographic signature." >&2
+          return 1
+        fi
+        owned_tail_count=$((owned_tail_count + 1))
       fi
       continue
     fi
@@ -4612,6 +4624,7 @@ normalize_legacy_unverified_dependabot_tail() {
     fi
     saw_legacy=1
     legacy_count=$((legacy_count + 1))
+    owned_tail_count=$((owned_tail_count + 1))
   done < <(git rev-list --reverse "origin/main..HEAD")
 
   if (( legacy_count == 0 )); then
@@ -4634,7 +4647,7 @@ normalize_legacy_unverified_dependabot_tail() {
     "--force-with-lease=refs/heads/${head_branch}:${lease_oid}" \
     origin \
     "HEAD:refs/heads/${head_branch}"
-  echo "Replaced ${legacy_count} locally signed legacy runner commit(s) on Dependabot PR #${pr_number} with one remotely attributable signed commit."
+  echo "Replaced ${owned_tail_count} locally signed runner tail commit(s), including ${legacy_count} legacy-identity commit(s), on Dependabot PR #${pr_number} with one remotely attributable signed commit."
 }
 
 assert_remote_commit_range_verified() {

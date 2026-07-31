@@ -1712,7 +1712,8 @@ def test_normalize_legacy_unverified_dependabot_tail_uses_exact_lease(
     call_log = tmp_path / "calls.txt"
     dependabot_sha = "a" * 40
     first_legacy_sha = "b" * 40
-    head_oid = "c" * 40
+    current_runner_sha = "c" * 40
+    head_oid = current_runner_sha
     replacement_base = "f" * 40
     shell_script = f"""
 source {shlex.quote(str(RUNNER_SCRIPT))}
@@ -1724,8 +1725,11 @@ gh() {{
     repos/scidsg/hushline/commits/{dependabot_sha})
       printf 'true\tvalid\tdependabot[bot]\n'
       ;;
-    repos/scidsg/hushline/commits/{first_legacy_sha}|repos/scidsg/hushline/commits/{head_oid})
+    repos/scidsg/hushline/commits/{first_legacy_sha})
       printf 'false\tno_user\t-\n'
+      ;;
+    repos/scidsg/hushline/commits/{current_runner_sha})
+      printf 'true\tvalid\thushline-dev\n'
       ;;
     *)
       return 99
@@ -1735,10 +1739,14 @@ gh() {{
 git() {{
   case "${{1-}} ${{2-}} ${{3-}}" in
     "rev-list --reverse origin/main..HEAD")
-      printf '%s\n%s\n%s\n' {dependabot_sha} {first_legacy_sha} {head_oid}
+      printf '%s\n%s\n%s\n' {dependabot_sha} {first_legacy_sha} {current_runner_sha}
       ;;
     "show -s --format=%an%x09%ae")
-      printf 'hushline-dev\tgit-dev@scidsg.org\n'
+      if [[ "${{4-}}" == "{current_runner_sha}" ]]; then
+        printf 'hushline-dev\t166439242+hushline-dev@users.noreply.github.com\n'
+      else
+        printf 'hushline-dev\tgit-dev@scidsg.org\n'
+      fi
       ;;
     verify-commit*)
       return 0
@@ -1778,7 +1786,9 @@ normalize_legacy_unverified_dependabot_tail 2341 dependabot/test
         f"--force-with-lease=refs/heads/dependabot/test:{head_oid} origin "
         "HEAD:refs/heads/dependabot/test"
     ) in calls
-    assert "Replaced 2 locally signed legacy runner commit(s)" in result.stdout
+    assert (
+        "Replaced 2 locally signed runner tail commit(s), including 1 legacy-identity commit(s)"
+    ) in result.stdout
     assert "unexpected" not in result.stderr
 
 
