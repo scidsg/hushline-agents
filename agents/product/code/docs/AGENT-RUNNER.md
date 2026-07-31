@@ -473,6 +473,7 @@ The runner now performs an SSH signing preflight immediately after configuring g
 - `HUSHLINE_DEPENDABOT_COMMIT_LOGIN` (default `dependabot[bot]`; exact trusted tip-commit author identity)
 - `HUSHLINE_BOT_GIT_NAME` (default `HUSHLINE_BOT_LOGIN`)
 - `HUSHLINE_BOT_GIT_EMAIL` (default `166439242+hushline-dev@users.noreply.github.com`, which GitHub maps to the `hushline-dev` account for remote signature verification)
+- `HUSHLINE_BOT_LEGACY_GIT_NAME` (default `Glenn`; retired runner display name accepted only with the configured legacy email and a valid local signature)
 - `HUSHLINE_BOT_LEGACY_GIT_EMAIL` (default `git-dev@scidsg.org`; the only retired runner identity eligible for locally verified tail normalization)
 - `HUSHLINE_BOT_GIT_GPG_FORMAT` (default `ssh`)
 - `HUSHLINE_BOT_GIT_SIGNING_KEY` (optional; when unset the runner reuses existing SSH git signing config if available)
