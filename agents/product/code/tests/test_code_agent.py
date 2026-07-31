@@ -1868,6 +1868,7 @@ def test_normalize_legacy_unverified_dependabot_tail_uses_exact_lease(
 source {shlex.quote(str(RUNNER_SCRIPT))}
 REPO_SLUG=scidsg/hushline
 BOT_GIT_NAME=hushline-dev
+BOT_LEGACY_GIT_NAME=Glenn
 BOT_LEGACY_GIT_EMAIL=git-dev@scidsg.org
 gh() {{
   case "$2" in
@@ -1894,7 +1895,7 @@ git() {{
       if [[ "${{4-}}" == "{current_runner_sha}" ]]; then
         printf 'hushline-dev\t166439242+hushline-dev@users.noreply.github.com\n'
       else
-        printf 'hushline-dev\tgit-dev@scidsg.org\n'
+        printf 'Glenn\tgit-dev@scidsg.org\n'
       fi
       ;;
     verify-commit*)

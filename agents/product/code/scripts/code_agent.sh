@@ -43,6 +43,7 @@ DEPENDABOT_LOGIN="${HUSHLINE_DEPENDABOT_LOGIN:-app/dependabot}"
 DEPENDABOT_COMMIT_LOGIN="${HUSHLINE_DEPENDABOT_COMMIT_LOGIN:-dependabot[bot]}"
 BOT_GIT_NAME="${HUSHLINE_BOT_GIT_NAME:-$BOT_LOGIN}"
 BOT_GIT_EMAIL="${HUSHLINE_BOT_GIT_EMAIL:-166439242+hushline-dev@users.noreply.github.com}"
+BOT_LEGACY_GIT_NAME="${HUSHLINE_BOT_LEGACY_GIT_NAME:-Glenn}"
 BOT_LEGACY_GIT_EMAIL="${HUSHLINE_BOT_LEGACY_GIT_EMAIL:-git-dev@scidsg.org}"
 BOT_GIT_GPG_FORMAT="${HUSHLINE_BOT_GIT_GPG_FORMAT:-ssh}"
 BOT_GIT_SIGNING_KEY="${HUSHLINE_BOT_GIT_SIGNING_KEY:-}"
@@ -4609,7 +4610,7 @@ normalize_legacy_unverified_dependabot_tail() {
     author_identity="$(git show -s --format='%an%x09%ae' "$commit_sha")"
     IFS=$'\t' read -r author_name author_email <<< "$author_identity"
     if [[ "$reason" != "no_user" \
-      || "$author_name" != "$BOT_GIT_NAME" \
+      || "$author_name" != "$BOT_LEGACY_GIT_NAME" \
       || "$author_email" != "$BOT_LEGACY_GIT_EMAIL" ]]; then
       echo "Blocked: Dependabot PR #${pr_number} contains unverified commit ${commit_sha:0:12} that is not an owned legacy runner commit (reason=${reason}, author=${author_login}, email=${author_email})." >&2
       return 1
@@ -4916,9 +4917,10 @@ assert_dependabot_rebase_commit_ownership() {
 
     author_identity="$(git show -s --format='%an%x09%ae' "$commit_sha")"
     IFS=$'\t' read -r author_name author_email <<< "$author_identity"
-    if [[ "$author_name" == "$BOT_GIT_NAME" \
-      && ( "$author_email" == "$BOT_GIT_EMAIL" \
-        || "$author_email" == "$BOT_LEGACY_GIT_EMAIL" ) ]] \
+    if { [[ "$author_name" == "$BOT_GIT_NAME" \
+      && "$author_email" == "$BOT_GIT_EMAIL" ]] \
+      || [[ "$author_name" == "$BOT_LEGACY_GIT_NAME" \
+        && "$author_email" == "$BOT_LEGACY_GIT_EMAIL" ]]; } \
       && git verify-commit "$commit_sha" >/dev/null 2>&1; then
       continue
     fi
