@@ -1467,6 +1467,49 @@ approve_dependabot_pr_if_eligible 2342
     assert not call_log.exists()
 
 
+def test_dependabot_merge_wait_logs_pending_checks_and_review_gate(
+    tmp_path: Path,
+) -> None:
+    clock_file = tmp_path / "clock.txt"
+    clock_file.write_text("100\n", encoding="utf-8")
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+DEPENDABOT_MERGE_WAIT_SECONDS=1
+date() {{
+  local current
+  current="$(< {shlex.quote(str(clock_file))})"
+  printf '%s\\n' "$current"
+  printf '%s\\n' "$((current + 1))" > {shlex.quote(str(clock_file))}
+}}
+gh() {{
+  if [[ "$1 $2 $3" == "pr view 2341" ]]; then
+    printf 'OPEN\\t-\\tBLOCKED\\tREVIEW_REQUIRED\\t2\\t0\\n'
+    return 0
+  fi
+  printf 'unexpected gh invocation: %s\\n' "$*" >&2
+  return 99
+}}
+sleep() {{
+  printf 'unexpected sleep\\n' >&2
+  return 99
+}}
+wait_for_dependabot_pr_terminal_state 2341
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    assert (
+        "Waiting for Dependabot PR #2341: merge=BLOCKED "
+        "review=REVIEW_REQUIRED pending_checks=2 failing_checks=0 "
+        "elapsed=1s/1s."
+    ) in result.stdout
+    assert (
+        "Dependabot PR #2341 remains open after 1s; it will stay ahead of ordinary issue work."
+    ) in result.stdout
+    assert "unexpected" not in result.stderr
+
+
 def test_main_resumes_in_progress_issue_before_selecting_new_work(
     tmp_path: Path,
 ) -> None:
