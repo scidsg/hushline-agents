@@ -1332,6 +1332,10 @@ refresh_runtime_after_dependency_worktree_changes() {{
 }}
 run_check_capture() {{
   printf 'gate:%s\\n' "$1" >> {shlex.quote(str(call_log))}
+  if [[ "$1" == "Verify Node dependency lockfile install integrity" ]]; then
+    shift
+    printf 'integrity-command:%s\\n' "$*" >> {shlex.quote(str(call_log))}
+  fi
 }}
 node_dependency_metadata_changed() {{ return 0; }}
 run_local_workflow_checks() {{
@@ -1349,6 +1353,12 @@ run_dependabot_workflow_checks
         "gate:Run Node runtime dependency vulnerability audit",
         "gate:Run full Node dependency vulnerability audit",
         "gate:Verify Node dependency lockfile install integrity",
+        (
+            "integrity-command:docker compose run --rm --no-deps webpack sh -lc "
+            'node_check_dir="$(mktemp -d)"; cp /app/package.json '
+            '/app/package-lock.json "$node_check_dir/"; cd "$node_check_dir"; '
+            "npm ci --ignore-scripts"
+        ),
         "workflow-checks",
     ]
 

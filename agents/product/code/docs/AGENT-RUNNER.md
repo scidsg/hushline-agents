@@ -83,7 +83,7 @@ Every queued issue is assumed to require a real change. Once the runner claims a
    - include every open alert in dependency assessment so one update can remediate all applicable advisories
    - inspect package use across the whole repository and apply necessary compatibility, security, test, or documentation updates
    - fail fast on Python and Node vulnerability audits before the expensive test suite
-   - verify changed Node lockfiles with an integrity-enforcing `npm ci --ignore-scripts` clean install so invalid registry metadata cannot reach CI
+   - verify changed Node lockfiles with an integrity-enforcing `npm ci --ignore-scripts` clean install in an isolated temporary directory under the project's pinned Node 20 webpack service, so invalid registry metadata cannot reach CI or dirty the live asset workspace
    - preserve prior security fixes across repair attempts and regenerate lockfiles rather than hand-editing package-manager checksums
    - run lint and the full test suite after dependency audits and install-integrity checks pass
    - approve only an unchanged Dependabot-authored tip; never let the runner approve its own compatibility commit
