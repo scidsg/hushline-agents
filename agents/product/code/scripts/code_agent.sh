@@ -4414,7 +4414,9 @@ run_dependabot_workflow_checks() {
     run_check_capture "Run full Node dependency vulnerability audit" make audit-node-full || return 1
     run_check_capture \
       "Verify Node dependency lockfile install integrity" \
-      docker compose run --rm app npm ci --ignore-scripts || return 1
+      docker compose run --rm --no-deps webpack sh -lc \
+      'node_check_dir="$(mktemp -d)"; cp /app/package.json /app/package-lock.json "$node_check_dir/"; cd "$node_check_dir"; npm ci --ignore-scripts' \
+      || return 1
   fi
   run_local_workflow_checks || return 1
 }
