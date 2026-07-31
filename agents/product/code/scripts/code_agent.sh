@@ -4556,6 +4556,61 @@ approve_dependabot_pr_if_eligible() {
   return 1
 }
 
+assert_remote_commit_range_verified() {
+  local base_ref="$1"
+  local head_ref="$2"
+  local work_label="$3"
+  local commit_sha=""
+  local short_sha=""
+  local verification=""
+  local verified=""
+  local reason=""
+  local author_login=""
+  local attempt=""
+  local commit_count=0
+
+  while IFS= read -r commit_sha; do
+    [[ -n "$commit_sha" ]] || continue
+    commit_count=$((commit_count + 1))
+    verification=""
+    for attempt in 1 2 3; do
+      if verification="$(
+        gh api "repos/${REPO_SLUG}/commits/${commit_sha}" \
+          --jq '[
+            .commit.verification.verified,
+            .commit.verification.reason,
+            (.author.login // "-")
+          ] | @tsv' 2>/dev/null
+      )"; then
+        break
+      fi
+      verification=""
+      if (( attempt < 3 )); then
+        sleep 2
+      fi
+    done
+
+    short_sha="${commit_sha:0:12}"
+    if [[ -z "$verification" ]]; then
+      echo "Blocked: GitHub remote verification was unavailable for ${work_label} commit ${short_sha} after 3 attempts." >&2
+      return 1
+    fi
+
+    IFS=$'\t' read -r verified reason author_login <<< "$verification"
+    if [[ "$verified" != "true" ]]; then
+      echo "Blocked: ${work_label} commit ${short_sha} is not remotely verified by GitHub (reason=${reason}, author=${author_login})." >&2
+      return 1
+    fi
+  done < <(git rev-list --reverse "${base_ref}..${head_ref}")
+
+  if (( commit_count == 0 )); then
+    echo "Blocked: ${work_label} has no commits in ${base_ref}..${head_ref} to verify." >&2
+    return 1
+  fi
+
+  echo "GitHub remotely verified ${commit_count} commit(s) for ${work_label}."
+}
+
 process_dependabot_pr() {
   local pr_number="$1"
   local pr_title="$2"
@@ -4641,6 +4696,13 @@ process_dependabot_pr() {
     fi
   else
     echo "Dependency assessment found no application changes required for PR #${pr_number}."
+  fi
+
+  if ! assert_remote_commit_range_verified \
+    "origin/main" \
+    HEAD \
+    "Dependabot PR #${pr_number}"; then
+    return 1
   fi
 
   if ! approve_dependabot_pr_if_eligible "$pr_number"; then
@@ -4820,6 +4882,13 @@ process_open_dependabot_security_alerts() {
     fi
     created_pr=1
     echo "Opened Dependabot security remediation PR #${pr_number}: ${pr_url}"
+  fi
+
+  if ! assert_remote_commit_range_verified \
+    "origin/main" \
+    HEAD \
+    "Dependabot security remediation PR #${pr_number}"; then
+    return 1
   fi
 
   if ! gh pr merge "$pr_number" \
