@@ -53,17 +53,18 @@ The code runner has two ordered jobs: drain trusted Dependabot maintenance, then
 assigned GitHub issue into one reviewed pull request.
 
 1. Pull and clean the latest base branch before any PR or issue work.
-2. Process every open, non-draft, same-repository PR authored by the exact trusted Dependabot identity, oldest first.
-3. For each dependency PR, inspect release/advisory context and affected package usage across application, tests, build, CI, and operations; apply only required compatibility work.
+2. Read every open Dependabot Security-tab alert and process every open, non-draft, same-repository PR authored by the exact trusted Dependabot identity, oldest first.
+3. For each dependency PR, inspect release/advisory and open-alert context plus affected package usage across application, tests, build, CI, and operations; apply all required compatibility and security work.
 4. Run `make lint`, `make test`, `make audit-python`, `make audit-node-runtime`, and `make audit-node-full` for Node dependency updates.
 5. Approve only when the PR tip is still authored by Dependabot, enable squash auto-merge, and wait for repository protections. A runner-authored compatibility commit must receive independent last-push approval.
-6. Keep ordinary issue work deferred while any Dependabot PR remains open, but continue assessing other open Dependabot PRs when one is awaiting approval.
-7. After dependency maintenance drains, select exactly one assigned issue from the configured project queue, or the issue passed with `--issue`.
-8. Make the smallest safe code, test, or documentation changes needed for that issue.
-9. Before opening or updating an issue PR, run `make lint` and `make test`; if either fails, repair the failure and rerun the checks.
-10. Open or update the issue PR only when there are meaningful non-log changes and local validation is clean.
-11. Poll the open issue PR for actionable comments, review threads, change requests, and failing checks.
-12. Address and resolve actionable feedback, push the issue PR update, and continue polling until the PR is closed.
+6. When alerts remain after the Dependabot PR queue drains, create or resume the dedicated signed `codex/dependabot-security-remediation` PR, validate it, and enable protected auto-merge.
+7. Keep ordinary issue work deferred while any Dependabot PR or security alert remains open, but continue assessing other open Dependabot PRs when one is awaiting approval.
+8. After dependency maintenance drains, select exactly one assigned issue from the configured project queue, or the issue passed with `--issue`.
+9. Make the smallest safe code, test, or documentation changes needed for that issue.
+10. Before opening or updating an issue PR, run `make lint` and `make test`; if either fails, repair the failure and rerun the checks.
+11. Open or update the issue PR only when there are meaningful non-log changes and local validation is clean.
+12. Poll the open issue PR for actionable comments, review threads, change requests, and failing checks.
+13. Address and resolve actionable feedback, push the issue PR update, and continue polling until the PR is closed.
 
 Every queued issue is assumed to require a real change. Once the runner claims an issue, the only successful terminal outcome is a clean, usable PR. If an attempt does not complete a validated implementation, the issue stays claimed as `In Progress`; the next runner pass must resume that same assigned issue instead of selecting new work, returning it to the eligible queue, opening a diagnostic PR, or moving it to `Ready for Review`.
 
@@ -76,12 +77,16 @@ Every queued issue is assumed to require a real change. Once the runner claims a
 5. Hold the runner lock through all repository cleanup, including exit-time checkout/reset/clean work, so a launchd overlap cannot start a second issue while the prior run is still unwinding.
 6. Normalize the local agent-only checkout by discarding local worktree changes and switching to the base branch.
 7. Drain open Dependabot PRs before any ordinary PR guard or issue work:
+   - fetch and normalize every open Dependabot alert from the repository Security tab; fail closed if alert access is unavailable
    - accept only the exact configured Dependabot identity, `main` base, same-repository branches, and the `dependabot/` head prefix
    - process oldest first and continue through the initial open set even if one PR needs independent approval
+   - include every open alert in dependency assessment so one update can remediate all applicable advisories
    - inspect package use across the whole repository and apply necessary compatibility, security, test, or documentation updates
    - run lint, full tests, Python and Node runtime audits, plus the full Node audit for Node dependency metadata
    - approve only an unchanged Dependabot-authored tip; never let the runner approve its own compatibility commit
    - enable protected squash auto-merge and defer ordinary issue work until every dependency PR closes
+   - if alerts remain with no open Dependabot PR, create or resume the dedicated signed security-remediation branch and PR
+   - never dismiss an alert, suppress an audit, self-approve runner-authored remediation, or bypass branch protections
    - refresh and clean `main` after the dependency pass
 8. Resume monitoring any open bot-authored issue PR whose head branch matches the daily issue branch pattern before selecting new issue work. This makes PR polling restart-resilient after launchd unloads, crashes, or reboots.
 9. Check cheap GitHub exit conditions before any new-work queue lookup or network sync/Docker work:
@@ -198,11 +203,14 @@ Every queued issue is assumed to require a real change. Once the runner claims a
       v
 +------------------------------------------------+
 | Open trusted Dependabot PRs?                   |
+| Read Security-tab alerts                       |
 | Assess whole-app impact, repair, audit, test   |
 | Approve unchanged bot tip + enable auto-merge  |
 +------------------------------------------------+
       |
-      +-- still open --> [Report dependency maintenance pending; defer issue work]
+      +-- alerts remain, no PR --> [Open/resume protected security-remediation PR]
+      |
+      +-- PR/alert still open --> [Report dependency maintenance pending; defer issue work]
       |
       v
 +------------------------------------------------+
@@ -473,6 +481,7 @@ The runner now performs an SSH signing preflight immediately after configuring g
 - `HUSHLINE_DAILY_PROJECT_ITEM_LIMIT` (default `200`)
 - `HUSHLINE_DAILY_BRANCH_PREFIX` (default `codex/daily-issue-`)
 - `HUSHLINE_DAILY_EPIC_BRANCH_PREFIX` (default `codex/epic-`)
+- `HUSHLINE_DEPENDABOT_SECURITY_BRANCH` (default `codex/dependabot-security-remediation`)
 - `HUSHLINE_DAILY_KILL_PORTS` (default `4566 4571 5432 8080`)
 - `HUSHLINE_DAILY_RUN_LOG_RETENTION` (default `10`)
 - `HUSHLINE_DAILY_RUN_LOG_DIR` (default `logs/runs/` in the `hushline-agents` checkout)

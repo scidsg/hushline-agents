@@ -1192,6 +1192,145 @@ list_open_dependabot_prs
     ]
 
 
+def test_fetch_open_dependabot_alerts_json_normalizes_security_data() -> None:
+    api_pages = json.dumps(
+        [
+            [
+                {
+                    "number": 75,
+                    "state": "open",
+                    "dependency": {
+                        "package": {"ecosystem": "npm", "name": "fast-uri"},
+                        "manifest_path": "package-lock.json",
+                        "scope": "development",
+                        "relationship": "transitive",
+                    },
+                    "security_advisory": {
+                        "ghsa_id": "GHSA-v2hh-gcrm-f6hx",
+                        "cve_id": "CVE-2026-16221",
+                        "severity": "high",
+                        "summary": "Host confusion",
+                    },
+                    "security_vulnerability": {
+                        "vulnerable_version_range": ">= 3.0.0, <= 3.1.3",
+                        "first_patched_version": {"identifier": "3.1.4"},
+                    },
+                    "html_url": ("https://github.com/scidsg/hushline/security/dependabot/75"),
+                }
+            ]
+        ]
+    )
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+gh() {{ printf '%s\\n' {shlex.quote(api_pages)}; }}
+fetch_open_dependabot_alerts_json
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    alerts = json.loads(result.stdout)
+    assert alerts == [
+        {
+            "number": 75,
+            "dependency": {
+                "package": {"ecosystem": "npm", "name": "fast-uri"},
+                "manifest_path": "package-lock.json",
+                "scope": "development",
+                "relationship": "transitive",
+            },
+            "advisory": {
+                "ghsa_id": "GHSA-v2hh-gcrm-f6hx",
+                "cve_id": "CVE-2026-16221",
+                "severity": "high",
+                "summary": "Host confusion",
+            },
+            "vulnerability": {
+                "vulnerable_version_range": ">= 3.0.0, <= 3.1.3",
+                "first_patched_version": "3.1.4",
+            },
+            "html_url": "https://github.com/scidsg/hushline/security/dependabot/75",
+        }
+    ]
+
+
+def test_dependency_lane_routes_alerts_without_prs_to_security_remediation(
+    tmp_path: Path,
+) -> None:
+    call_log = tmp_path / "calls.txt"
+    alerts_json = json.dumps([{"number": 75}])
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+fetch_open_dependabot_alerts_json() {{ printf '%s\\n' {shlex.quote(alerts_json)}; }}
+list_open_dependabot_prs() {{ :; }}
+process_open_dependabot_security_alerts() {{
+  printf 'security-alerts:%s\\n' "$1" >> {shlex.quote(str(call_log))}
+}}
+process_open_dependabot_prs
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    assert "Open Dependabot security alert count: 1" in result.stdout
+    assert "Open Dependabot PR count: 0" in result.stdout
+    assert call_log.read_text(encoding="utf-8") == f"security-alerts:{alerts_json}\n"
+
+
+def test_dependabot_review_prompt_includes_open_security_alerts(
+    tmp_path: Path,
+) -> None:
+    prompt_file = tmp_path / "prompt.txt"
+    alerts_json = json.dumps([{"number": 75, "advisory": {"ghsa_id": "GHSA-v2hh-gcrm-f6hx"}}])
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+PROMPT_FILE={shlex.quote(str(prompt_file))}
+git() {{ :; }}
+build_dependabot_review_prompt 2342 "fast-uri update" "body" "feedback" \
+  {shlex.quote(alerts_json)}
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    prompt = prompt_file.read_text(encoding="utf-8")
+    assert "Open Dependabot security alerts from the repository Security tab" in prompt
+    assert "GHSA-v2hh-gcrm-f6hx" in prompt
+    assert "every open Dependabot security alert" in prompt
+
+
+def test_security_alert_remediation_refuses_empty_new_branch(tmp_path: Path) -> None:
+    call_log = tmp_path / "calls.txt"
+    alerts_json = json.dumps([{"number": 75}])
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+wait_for_codex_status_credit_window() {{ return 0; }}
+find_open_pr_for_head_branch() {{ :; }}
+remote_branch_exists() {{ return 1; }}
+run_step() {{ :; }}
+configure_bot_git_identity() {{ :; }}
+kill_all_docker_containers() {{ :; }}
+kill_processes_on_ports() {{ :; }}
+start_runtime_stack_and_seed_dev_data() {{ :; }}
+restore_runtime_generated_static_artifacts() {{ :; }}
+build_dependabot_security_alert_prompt() {{ :; }}
+run_codex_from_prompt() {{ return 0; }}
+has_non_log_changes() {{ return 1; }}
+branch_has_unique_commits() {{ return 1; }}
+gh() {{
+  printf 'unexpected-gh:%s\\n' "$*" >> {shlex.quote(str(call_log))}
+  return 99
+}}
+process_open_dependabot_security_alerts {shlex.quote(alerts_json)}
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 1
+    assert "Codex produced no remediation changes" in result.stderr
+    assert not call_log.exists()
+
+
 def test_main_processes_dependabot_lane_before_human_pr_guard(tmp_path: Path) -> None:
     call_log = tmp_path / "calls.txt"
     repo_dir = tmp_path / "repo"
