@@ -4473,8 +4473,13 @@ wait_for_dependabot_pr_terminal_state() {
   local pr_number="$1"
   local started_at=""
   local now=""
+  local elapsed=""
   local state=""
   local merged_at=""
+  local merge_state=""
+  local review_decision=""
+  local pending_checks=""
+  local failing_checks=""
 
   if (( DEPENDABOT_MERGE_WAIT_SECONDS == 0 )); then
     return 0
@@ -4482,14 +4487,30 @@ wait_for_dependabot_pr_terminal_state() {
 
   started_at="$(date +%s)"
   while :; do
-    IFS=$'\t' read -r state merged_at <<< "$(
+    IFS=$'\t' read -r \
+      state \
+      merged_at \
+      merge_state \
+      review_decision \
+      pending_checks \
+      failing_checks <<< "$(
       gh pr view "$pr_number" \
         --repo "$REPO_SLUG" \
-        --json state,mergedAt \
-        --jq '[.state, (.mergedAt // "")] | @tsv'
+        --json state,mergedAt,mergeStateStatus,reviewDecision,statusCheckRollup \
+        --jq '[
+          .state,
+          (.mergedAt // "-"),
+          (.mergeStateStatus // "UNKNOWN"),
+          (.reviewDecision // "NONE"),
+          ([.statusCheckRollup[]? | select(.status != "COMPLETED")] | length),
+          ([
+            .statusCheckRollup[]?
+            | select(.status == "COMPLETED" and .conclusion != "SUCCESS")
+          ] | length)
+        ] | @tsv'
     )"
     if [[ "$state" != "OPEN" ]]; then
-      if [[ -n "$merged_at" ]]; then
+      if [[ "$merged_at" != "-" ]]; then
         echo "Dependabot PR #${pr_number} merged at ${merged_at}."
       else
         echo "Dependabot PR #${pr_number} closed without merge."
@@ -4498,7 +4519,9 @@ wait_for_dependabot_pr_terminal_state() {
     fi
 
     now="$(date +%s)"
-    if (( now - started_at >= DEPENDABOT_MERGE_WAIT_SECONDS )); then
+    elapsed=$((now - started_at))
+    echo "Waiting for Dependabot PR #${pr_number}: merge=${merge_state} review=${review_decision} pending_checks=${pending_checks} failing_checks=${failing_checks} elapsed=${elapsed}s/${DEPENDABOT_MERGE_WAIT_SECONDS}s."
+    if (( elapsed >= DEPENDABOT_MERGE_WAIT_SECONDS )); then
       echo "Dependabot PR #${pr_number} remains open after ${DEPENDABOT_MERGE_WAIT_SECONDS}s; it will stay ahead of ordinary issue work."
       return 0
     fi
