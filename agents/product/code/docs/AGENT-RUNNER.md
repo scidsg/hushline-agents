@@ -471,7 +471,7 @@ The runner now performs an SSH signing preflight immediately after configuring g
 - `HUSHLINE_DEPENDABOT_LOGIN` (default `app/dependabot`; exact trusted PR author identity)
 - `HUSHLINE_DEPENDABOT_COMMIT_LOGIN` (default `dependabot[bot]`; exact trusted tip-commit author identity)
 - `HUSHLINE_BOT_GIT_NAME` (default `HUSHLINE_BOT_LOGIN`)
-- `HUSHLINE_BOT_GIT_EMAIL` (default `git-dev@scidsg.org`)
+- `HUSHLINE_BOT_GIT_EMAIL` (default `166439242+hushline-dev@users.noreply.github.com`, which GitHub maps to the `hushline-dev` account for remote signature verification)
 - `HUSHLINE_BOT_GIT_GPG_FORMAT` (default `ssh`)
 - `HUSHLINE_BOT_GIT_SIGNING_KEY` (optional; when unset the runner reuses existing SSH git signing config if available)
 - `HUSHLINE_BOT_GIT_DEFAULT_SSH_SIGNING_KEY_PATH` (optional; no default)
