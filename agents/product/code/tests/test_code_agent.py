@@ -1128,6 +1128,18 @@ count_open_human_prs
     assert result.stdout == "1\n"
 
 
+def test_default_bot_git_email_maps_to_hushline_dev_account() -> None:
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+printf '%s\\n' "$BOT_GIT_EMAIL"
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ("166439242+hushline-dev@users.noreply.github.com")
+
+
 def test_list_open_dependabot_prs_is_strict_and_oldest_first() -> None:
     sha_old = "a" * 40
     sha_new = "b" * 40
@@ -3106,7 +3118,10 @@ def test_persisted_runner_log_redacts_developer_metadata(tmp_path: Path) -> None
             [
                 "Runner Codex config: model=gpt-5.6-sol reasoning_effort=high "
                 "verbose_codex_output=0",
-                "Configured git identity: hushline-dev <git-dev@scidsg.org>",
+                (
+                    "Configured git identity: hushline-dev "
+                    "<166439242+hushline-dev@users.noreply.github.com>"
+                ),
                 "Run log file: /Users/developer/hushline/docs/agent-logs/run.log",
                 "Global log file: /Users/developer/.codex/logs/hushline-code-agent.log",
                 "workdir: /Users/developer/hushline",
@@ -3149,7 +3164,7 @@ printf '%s\\n' "$RUN_LOG_PATH"
     persisted_text = persisted_log.read_text(encoding="utf-8")
 
     assert persisted_log.exists()
-    assert "git-dev@scidsg.org" not in persisted_text
+    assert "166439242+hushline-dev@users.noreply.github.com" not in persisted_text
     assert "hello@example.com" not in persisted_text
     assert "/Users/developer" not in persisted_text
     assert "Runner Codex config: [redacted]" in persisted_text
