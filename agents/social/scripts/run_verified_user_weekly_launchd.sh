@@ -7,6 +7,8 @@ DEFAULT_SOCIAL_REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_DIR="${HUSHLINE_SOCIAL_REPO_DIR:-$DEFAULT_SOCIAL_REPO_DIR}"
 export HUSHLINE_SOCIAL_REPO_DIR="$REPO_DIR"
 source "$AGENTS_REPO_DIR/agents/social/scripts/lib/load-launchd-env.sh"
+source "$AGENTS_REPO_DIR/agents/social/scripts/lib/social-repo-run-lock.sh"
+source "$AGENTS_REPO_DIR/agents/social/scripts/lib/update-run-repos.sh"
 LOCK_DIR="$REPO_DIR/.tmp/verified-user-weekly.lock"
 ENV_FILE=""
 COMBINED_LOG_FILE="${HUSHLINE_SOCIAL_COMBINED_LOG_FILE:-$AGENTS_REPO_DIR/logs/social/social-daily.log}"
@@ -41,6 +43,11 @@ effective_date() {
 }
 
 update_repo() {
+  if [[ "${HUSHLINE_SOCIAL_REPO_PREPARED:-0}" == "1" ]]; then
+    echo "Social repository already prepared by the parent post-agent run."
+    return
+  fi
+
   if [[ "$AUTO_GIT_PULL" != "1" ]]; then
     echo "Automatic git pull skipped."
     return
@@ -72,6 +79,12 @@ update_repo() {
   git -C "$REPO_DIR" pull --ff-only
 }
 
+run_weekly_agent() {
+  update_repo
+  cd "$REPO_DIR"
+  "$AGENTS_REPO_DIR/agents/social/scripts/agent_weekly_verified_user_runner.sh" "$@"
+}
+
 if ! mkdir -p "$REPO_DIR/.tmp"; then
   echo "Failed to create temp directory under $REPO_DIR/.tmp" >&2
   exit 1
@@ -89,7 +102,12 @@ ENV_FILE="$HUSHLINE_SOCIAL_ENV_FILE"
 setup_log_capture
 echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] Starting verified-user weekly wrapper."
 
-update_repo
-
-cd "$REPO_DIR"
-"$AGENTS_REPO_DIR/agents/social/scripts/agent_weekly_verified_user_runner.sh" "$@"
+if [[ "${HUSHLINE_SOCIAL_REPO_PREPARED:-0}" == "1" ]]; then
+  run_weekly_agent "$@"
+else
+  with_social_repo_run_lock \
+    "$REPO_DIR" \
+    "verified-user weekly run for $(effective_date "$@")" \
+    run_weekly_agent \
+    "$@"
+fi

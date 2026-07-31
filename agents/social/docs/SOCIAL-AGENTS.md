@@ -34,6 +34,20 @@ The scheduled posting agents plan and publish through one launchd job per conten
 Direct manual runs do not apply randomized timing or weekly weekday selection unless
 `HUSHLINE_SOCIAL_RANDOMIZE_POST_WINDOW=1` is set.
 
+## Clean Run Isolation
+
+Every social runner waits for its randomized publication target before taking the
+shared `hushline-social` checkout lock. While holding that lock, it resets tracked
+changes, removes untracked files, performs a fast-forward-only pull, plans the post,
+publishes enabled platforms, and archives the resulting publication records. This
+prevents concurrent launchd jobs from mutating the same Git index or cleaning another
+job's in-progress artifacts.
+
+The lock wait defaults to one hour and can be changed with
+`HUSHLINE_SOCIAL_REPO_LOCK_TIMEOUT_SECONDS`. A run fails closed when the lock cannot be
+acquired or when an earlier publication record has not been archived; it never deletes
+an unarchived `*-publication.json` merely to obtain a clean checkout.
+
 LinkedIn is always published first. Mastodon and Bluesky are optional secondary
 targets. Enable them with `HUSHLINE_SOCIAL_MASTODON_ENABLED=1` and
 `HUSHLINE_SOCIAL_BLUESKY_ENABLED=1` in the launchd env file.

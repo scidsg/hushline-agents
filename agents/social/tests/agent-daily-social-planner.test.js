@@ -3,17 +3,38 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
+const { execFile, execFileSync } = require("node:child_process");
 
 const REPO_ROOT = path.resolve(__dirname, "..");
 const plannerScriptPath = path.join(REPO_ROOT, "scripts", "agent_daily_social_planner.sh");
 const linkedinPublisherScriptPath = path.join(REPO_ROOT, "scripts", "agent_daily_linkedin_publisher.sh");
 const linkedinWrapperPath = path.join(REPO_ROOT, "scripts", "run_daily_linkedin_launchd.sh");
 const plannerWrapperPath = path.join(REPO_ROOT, "scripts", "run_daily_planner_launchd.sh");
+const pushArchiveScriptPath = path.join(REPO_ROOT, "scripts", "push_previous_posts_archive.sh");
+const socialRepoRunLockLibPath = path.join(
+  REPO_ROOT,
+  "scripts",
+  "lib",
+  "social-repo-run-lock.sh",
+);
 const updateRunReposLibPath = path.join(REPO_ROOT, "scripts", "lib", "update-run-repos.sh");
 
 function shellQuote(value) {
   return `'${String(value).replaceAll("'", "'\\''")}'`;
+}
+
+function execFilePromise(file, args, options) {
+  return new Promise((resolve, reject) => {
+    execFile(file, args, options, (error, stdout, stderr) => {
+      if (error) {
+        error.stdout = stdout;
+        error.stderr = stderr;
+        reject(error);
+        return;
+      }
+      resolve({ stderr, stdout });
+    });
+  });
 }
 
 test("daily planner auto-syncs before rejecting a stale local screenshots manifest", () => {
@@ -141,6 +162,133 @@ test("daily repo update returns failure when either checkout update fails", () =
   assert.match(output, /hushline-social/);
   assert.match(output, /hushline-screenshots/);
   assert.match(output, /rc:1/);
+});
+
+test("shared social repository lock serializes independent runner processes", async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "social-repo-run-lock-"));
+  const socialRepo = path.join(tempRoot, "hushline-social");
+  const criticalDir = path.join(tempRoot, "critical");
+  const orderPath = path.join(tempRoot, "order.txt");
+  const overlapPath = path.join(tempRoot, "overlap.txt");
+
+  fs.mkdirSync(path.join(socialRepo, ".tmp"), { recursive: true });
+
+  const testScript = [
+    "set -euo pipefail",
+    `source ${shellQuote(socialRepoRunLockLibPath)}`,
+    "run_critical_section() {",
+    `  if ! mkdir ${shellQuote(criticalDir)} 2>/dev/null; then`,
+    `    printf 'overlap\\n' >> ${shellQuote(overlapPath)}`,
+    "    return 1",
+    "  fi",
+    `  printf '%s\\n' \"$$\" >> ${shellQuote(orderPath)}`,
+    "  sleep 1",
+    `  rmdir ${shellQuote(criticalDir)}`,
+    "}",
+    `with_social_repo_run_lock ${shellQuote(socialRepo)} test-run run_critical_section`,
+    "",
+  ].join("\n");
+
+  try {
+    const runs = await Promise.all([
+      execFilePromise("bash", ["-c", testScript], { cwd: REPO_ROOT, encoding: "utf8" }),
+      execFilePromise("bash", ["-c", testScript], { cwd: REPO_ROOT, encoding: "utf8" }),
+    ]);
+
+    assert.equal(fs.existsSync(overlapPath), false);
+    assert.equal(fs.readFileSync(orderPath, "utf8").trim().split("\n").length, 2);
+    assert.equal(runs.some(({ stdout }) => stdout.includes("Waiting for the shared")), true);
+  } finally {
+    fs.rmSync(tempRoot, { force: true, recursive: true });
+  }
+});
+
+test("daily repo update preserves unarchived publication records", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "daily-planner-publication-guard-"));
+  const socialRepo = path.join(tempRoot, "hushline-social");
+  const publicationPath = path.join(
+    socialRepo,
+    "previous-posts",
+    "2026-07-23",
+    "linkedin-publication.json",
+  );
+
+  try {
+    fs.mkdirSync(path.dirname(publicationPath), { recursive: true });
+    execFileSync("git", ["init", "-b", "main", socialRepo]);
+    execFileSync("git", ["-C", socialRepo, "config", "user.email", "test@example.com"]);
+    execFileSync("git", ["-C", socialRepo, "config", "user.name", "Test Runner"]);
+    fs.writeFileSync(path.join(socialRepo, "README.md"), "archive\n");
+    execFileSync("git", ["-C", socialRepo, "add", "README.md"]);
+    execFileSync("git", [
+      "-c",
+      "commit.gpgsign=false",
+      "-C",
+      socialRepo,
+      "commit",
+      "-m",
+      "Initial archive",
+    ]);
+    fs.writeFileSync(publicationPath, "{\"platform\":\"linkedin\"}\n");
+
+    const testScript = [
+      "set +e",
+      `source ${shellQuote(updateRunReposLibPath)}`,
+      `update_git_checkout ${shellQuote(socialRepo)} hushline-social 1 1`,
+      "printf 'rc:%s\\n' \"$?\"",
+      "",
+    ].join("\n");
+    const output = execFileSync("bash", ["-c", testScript], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    assert.match(output, /rc:1/);
+    assert.equal(fs.existsSync(publicationPath), true);
+  } finally {
+    fs.rmSync(tempRoot, { force: true, recursive: true });
+  }
+});
+
+test("archive push helper targets the configured social archive checkout", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "social-archive-push-root-"));
+  const socialRepo = path.join(tempRoot, "hushline-social");
+  const archiveDir = path.join(socialRepo, "previous-posts", "2026-07-23");
+
+  try {
+    fs.mkdirSync(archiveDir, { recursive: true });
+    execFileSync("git", ["init", "-b", "main", socialRepo]);
+    execFileSync("git", ["-C", socialRepo, "config", "user.email", "test@example.com"]);
+    execFileSync("git", ["-C", socialRepo, "config", "user.name", "Test Runner"]);
+    execFileSync("git", [
+      "-C",
+      socialRepo,
+      "remote",
+      "add",
+      "origin",
+      "https://github.com/scidsg/hushline-social.git",
+    ]);
+    fs.writeFileSync(path.join(archiveDir, "post.json"), "{\"date\":\"2026-07-23\"}\n");
+
+    const output = execFileSync(
+      pushArchiveScriptPath,
+      ["--date", "2026-07-23", "--dry-run"],
+      {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HUSHLINE_SOCIAL_REPO_DIR: socialRepo,
+        },
+      },
+    );
+
+    assert.match(output, /would commit previous-posts\/2026-07-23/);
+    assert.doesNotMatch(output, /Archive folder not found/);
+  } finally {
+    fs.rmSync(tempRoot, { force: true, recursive: true });
+  }
 });
 
 test("daily planner wrapper stops when repo update fails under transient retry", () => {

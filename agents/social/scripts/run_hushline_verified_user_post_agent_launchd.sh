@@ -8,9 +8,13 @@ REPO_DIR="${HUSHLINE_SOCIAL_REPO_DIR:-$DEFAULT_SOCIAL_REPO_DIR}"
 source "$AGENTS_REPO_DIR/agents/social/scripts/lib/load-launchd-env.sh"
 source "$AGENTS_REPO_DIR/agents/social/scripts/lib/random-post-window.sh"
 source "$AGENTS_REPO_DIR/agents/social/scripts/lib/social-platforms.sh"
+source "$AGENTS_REPO_DIR/agents/social/scripts/lib/social-repo-run-lock.sh"
 source "$AGENTS_REPO_DIR/agents/social/scripts/lib/transient-retry.sh"
+source "$AGENTS_REPO_DIR/agents/social/scripts/lib/update-run-repos.sh"
 LOCK_DIR="$REPO_DIR/.tmp/hushline-verified-user-post-agent.lock"
 COMBINED_LOG_FILE="${HUSHLINE_SOCIAL_COMBINED_LOG_FILE:-$AGENTS_REPO_DIR/logs/social/social-daily.log}"
+AUTO_GIT_PULL="${HUSHLINE_SOCIAL_GIT_PULL:-1}"
+AUTO_GIT_CLEAN="${HUSHLINE_SOCIAL_GIT_CLEAN:-1}"
 DATE_OVERRIDE=""
 RUN_DATE=""
 
@@ -89,7 +93,9 @@ skip_unless_selected_weekday() {
 }
 
 plan_post() {
-  "$AGENTS_REPO_DIR/agents/social/scripts/run_verified_user_weekly_launchd.sh" --date "$(effective_date)"
+  HUSHLINE_SOCIAL_REPO_PREPARED=1 \
+    "$AGENTS_REPO_DIR/agents/social/scripts/run_verified_user_weekly_launchd.sh" \
+    --date "$(effective_date)"
 }
 
 publish_post() {
@@ -131,6 +137,12 @@ publish_post() {
   fi
 }
 
+run_agent() {
+  update_git_checkout "$REPO_DIR" "hushline-social" "$AUTO_GIT_PULL" "$AUTO_GIT_CLEAN"
+  plan_post
+  run_with_transient_retry "hushline-verified-user-post-agent" publish_post
+}
+
 if ! mkdir -p "$REPO_DIR/.tmp"; then
   echo "Failed to create temp directory under $REPO_DIR/.tmp" >&2
   exit 1
@@ -156,6 +168,8 @@ if post_window_randomization_enabled; then
   target_epoch="$(random_post_window_target_epoch "$(effective_date)")"
 fi
 
-plan_post
 sleep_until_post_window_target "$target_epoch" "verified-user"
-run_with_transient_retry "hushline-verified-user-post-agent" publish_post
+with_social_repo_run_lock \
+  "$REPO_DIR" \
+  "verified-user run for $(effective_date)" \
+  run_agent

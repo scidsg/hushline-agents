@@ -123,6 +123,30 @@ def test_post_agent_wrappers_randomize_publish_window() -> None:
         assert "sleep_until_post_window_target" in script
 
 
+def test_post_agent_wrappers_serialize_clean_runs_after_random_wait() -> None:
+    for script_name in [
+        "run_whistleblower_news_post_agent_launchd.sh",
+        "run_hushline_feature_post_agent_launchd.sh",
+        "run_hushline_verified_user_post_agent_launchd.sh",
+    ]:
+        script = (SOCIAL_AGENT_ROOT / "scripts" / script_name).read_text(encoding="utf-8")
+
+        assert (
+            'source "$AGENTS_REPO_DIR/agents/social/scripts/lib/social-repo-run-lock.sh"' in script
+        )
+        assert "with_social_repo_run_lock" in script
+        assert script.rindex("sleep_until_post_window_target") < script.rindex(
+            "with_social_repo_run_lock"
+        )
+
+        run_agent = script[
+            script.index("run_agent() {") : script.index("\n}\n", script.index("run_agent() {"))
+        ]
+        assert "update_" in run_agent
+        assert run_agent.index("update_") < run_agent.index("plan_post")
+        assert run_agent.index("plan_post") < run_agent.index("publish_post")
+
+
 def test_post_agent_wrappers_pin_run_date_before_random_wait() -> None:
     for script_name in [
         "run_whistleblower_news_post_agent_launchd.sh",

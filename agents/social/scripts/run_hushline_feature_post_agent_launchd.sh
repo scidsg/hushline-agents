@@ -8,6 +8,7 @@ REPO_DIR="${HUSHLINE_SOCIAL_REPO_DIR:-$DEFAULT_SOCIAL_REPO_DIR}"
 source "$AGENTS_REPO_DIR/agents/social/scripts/lib/load-launchd-env.sh"
 source "$AGENTS_REPO_DIR/agents/social/scripts/lib/random-post-window.sh"
 source "$AGENTS_REPO_DIR/agents/social/scripts/lib/social-platforms.sh"
+source "$AGENTS_REPO_DIR/agents/social/scripts/lib/social-repo-run-lock.sh"
 source "$AGENTS_REPO_DIR/agents/social/scripts/lib/transient-retry.sh"
 source "$AGENTS_REPO_DIR/agents/social/scripts/lib/update-run-repos.sh"
 LOCK_DIR="$REPO_DIR/.tmp/hushline-feature-post-agent.lock"
@@ -118,6 +119,12 @@ publish_post() {
   fi
 }
 
+run_agent() {
+  update_daily_planning_repos "$REPO_DIR" "$AUTO_GIT_PULL" "$AUTO_GIT_CLEAN"
+  plan_post
+  run_with_transient_retry "hushline-feature-post-agent" publish_post
+}
+
 if ! mkdir -p "$REPO_DIR/.tmp"; then
   echo "Failed to create temp directory under $REPO_DIR/.tmp" >&2
   exit 1
@@ -142,7 +149,8 @@ if post_window_randomization_enabled; then
   target_epoch="$(random_post_window_target_epoch "$(effective_date)")"
 fi
 
-update_daily_planning_repos "$REPO_DIR" "$AUTO_GIT_PULL" "$AUTO_GIT_CLEAN"
-plan_post
 sleep_until_post_window_target "$target_epoch" "Hush Line feature"
-run_with_transient_retry "hushline-feature-post-agent" publish_post
+with_social_repo_run_lock \
+  "$REPO_DIR" \
+  "Hush Line feature run for $(effective_date)" \
+  run_agent

@@ -7,6 +7,7 @@ DEFAULT_SOCIAL_REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_DIR="${HUSHLINE_SOCIAL_REPO_DIR:-$DEFAULT_SOCIAL_REPO_DIR}"
 export HUSHLINE_SOCIAL_REPO_DIR="$REPO_DIR"
 source "$AGENTS_REPO_DIR/agents/social/scripts/lib/load-launchd-env.sh"
+source "$AGENTS_REPO_DIR/agents/social/scripts/lib/social-repo-run-lock.sh"
 source "$AGENTS_REPO_DIR/agents/social/scripts/lib/transient-retry.sh"
 source "$AGENTS_REPO_DIR/agents/social/scripts/lib/update-run-repos.sh"
 LOCK_DIR="$REPO_DIR/.tmp/daily-planner.lock"
@@ -61,10 +62,18 @@ update_repo() {
   update_daily_planning_repos "$REPO_DIR" "$AUTO_GIT_PULL" "$AUTO_GIT_CLEAN"
 }
 
-run_daily_planner() {
+run_daily_planner_locked() {
   update_repo || return $?
   cd "$REPO_DIR"
   "$AGENTS_REPO_DIR/agents/social/scripts/agent_daily_social_planner.sh" "$@"
+}
+
+run_daily_planner() {
+  with_social_repo_run_lock \
+    "$REPO_DIR" \
+    "daily social planner for $(effective_date "$@")" \
+    run_daily_planner_locked \
+    "$@"
 }
 
 if ! mkdir -p "$REPO_DIR/.tmp"; then
