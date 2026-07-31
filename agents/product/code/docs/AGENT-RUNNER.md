@@ -74,8 +74,8 @@ Every queued issue is assumed to require a real change. Once the runner claims a
    - exit if any open human-authored PR exists
 9. Select issue target before any network sync or Docker work:
    - resume the top open issue already in project status `In Progress`, otherwise
-   - Use `--issue <n>` when provided (must still be open), otherwise
-   - select the top open issue from project `Hush Line Roadmap`, column `Agent Eligible`.
+   - Use `--issue <n>` when provided (must still be open, `Agent Eligible`, and authored by `glenn-sorrentino`), otherwise
+   - select the top open issue authored by `glenn-sorrentino` from project `Hush Line Roadmap`, column `Agent Eligible`; anyone may still open issues for human triage.
 10. Check remaining cheap GitHub exit conditions before any network sync or Docker work:
 
 - for non-epic issues, exit if any other open PR exists from `hushline-dev`

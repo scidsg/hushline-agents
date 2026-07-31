@@ -51,6 +51,7 @@ CODEX_REASONING_EFFORT="${HUSHLINE_CODEX_REASONING_EFFORT:-high}"
 PROJECT_OWNER="${HUSHLINE_DAILY_PROJECT_OWNER:-${REPO_SLUG%%/*}}"
 PROJECT_TITLE="${HUSHLINE_DAILY_PROJECT_TITLE:-Hush Line Roadmap}"
 PROJECT_COLUMN="${HUSHLINE_DAILY_PROJECT_COLUMN:-Agent Eligible}"
+ISSUE_AUTHOR="glenn-sorrentino"
 PROJECT_STATUS_FIELD_NAME="${HUSHLINE_DAILY_PROJECT_STATUS_FIELD_NAME:-Status}"
 PROJECT_STATUS_IN_PROGRESS="${HUSHLINE_DAILY_PROJECT_STATUS_IN_PROGRESS:-In Progress}"
 PROJECT_STATUS_READY_FOR_REVIEW="${HUSHLINE_DAILY_PROJECT_STATUS_READY_FOR_REVIEW:-Ready for Review}"
@@ -2621,6 +2622,9 @@ collect_issue_candidates_from_project() {
                           number
                           state
                           url
+                          author {
+                            login
+                          }
                           repository {
                             owner {
                               login
@@ -2651,6 +2655,9 @@ collect_issue_candidates_from_project() {
                           number
                           state
                           url
+                          author {
+                            login
+                          }
                           repository {
                             owner {
                               login
@@ -2692,6 +2699,9 @@ collect_issue_candidates_from_project() {
                         number
                         state
                         url
+                        author {
+                          login
+                        }
                         repository {
                           owner {
                             login
@@ -2722,6 +2732,9 @@ collect_issue_candidates_from_project() {
                         number
                         state
                         url
+                        author {
+                          login
+                        }
                         repository {
                           owner {
                             login
@@ -2754,7 +2767,7 @@ collect_issue_candidates_from_project() {
       break
     fi
 
-    page_output="$(printf '%s' "$response" | REPO_SLUG="$REPO_SLUG" TARGET_PROJECT_STATUS_NAME="$target_status_name" node -e '
+    page_output="$(printf '%s' "$response" | REPO_SLUG="$REPO_SLUG" ISSUE_AUTHOR="$ISSUE_AUTHOR" TARGET_PROJECT_STATUS_NAME="$target_status_name" node -e '
       const fs = require("fs");
       const payload = JSON.parse(fs.readFileSync(0, "utf8"));
       const data = payload && payload.data ? payload.data : {};
@@ -2772,6 +2785,7 @@ collect_issue_candidates_from_project() {
           ? itemsConnection.pageInfo
           : {};
       const expectedRepo = String(process.env.REPO_SLUG || "").trim().toLowerCase();
+      const expectedAuthor = String(process.env.ISSUE_AUTHOR || "").trim().toLowerCase();
       const expectedStatus = String(process.env.TARGET_PROJECT_STATUS_NAME || "").trim().toLowerCase();
 
       function getRepositorySlug(content) {
@@ -2808,6 +2822,11 @@ collect_issue_candidates_from_project() {
 
         const contentRepo = getRepositorySlug(content);
         if (expectedRepo && contentRepo && contentRepo !== expectedRepo) continue;
+
+        const contentAuthor = String(
+          content.author && content.author.login ? content.author.login : "",
+        ).trim().toLowerCase();
+        if (expectedAuthor && contentAuthor !== expectedAuthor) continue;
 
         let number = Number(content.number);
         if (!Number.isInteger(number) || number <= 0) {
@@ -2864,6 +2883,19 @@ collect_issue_candidates() {
   fi
 
   collect_issue_candidates_from_project "$project_number"
+}
+
+issue_is_agent_eligible() {
+  local issue_number="$1"
+  local candidate=""
+
+  while IFS= read -r candidate; do
+    if [[ "$candidate" == "$issue_number" ]]; then
+      return 0
+    fi
+  done < <(collect_issue_candidates)
+
+  return 1
 }
 
 collect_issue_candidates_in_status() {
@@ -4198,6 +4230,10 @@ main() {
   if [[ -n "$FORCE_ISSUE_NUMBER" ]]; then
     if ! issue_is_open "$FORCE_ISSUE_NUMBER"; then
       echo "Blocked: forced issue #$FORCE_ISSUE_NUMBER is not open." >&2
+      exit 1
+    fi
+    if ! issue_is_agent_eligible "$FORCE_ISSUE_NUMBER"; then
+      echo "Blocked: forced issue #$FORCE_ISSUE_NUMBER must be in project status '$PROJECT_COLUMN' and authored by '$ISSUE_AUTHOR'." >&2
       exit 1
     fi
     ISSUE_NUMBER="$FORCE_ISSUE_NUMBER"
