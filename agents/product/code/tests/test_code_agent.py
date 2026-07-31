@@ -1299,6 +1299,60 @@ build_dependabot_review_prompt 2342 "fast-uri update" "body" "feedback" \
     assert "every open Dependabot security alert" in prompt
 
 
+def test_dependabot_fix_prompt_preserves_prior_fixes_and_regenerates_lockfiles(
+    tmp_path: Path,
+) -> None:
+    prompt_file = tmp_path / "prompt.txt"
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+PROMPT_FILE={shlex.quote(str(prompt_file))}
+current_change_summary() {{ printf 'package-lock.json\\npoetry.lock\\n'; }}
+build_dependabot_fix_prompt "Dependabot PR #2341" "dependency update" \
+  "audit failed" "audit-signature" 1
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    prompt = prompt_file.read_text(encoding="utf-8")
+    assert "every valid dependency/security fix already present" in prompt
+    assert "equal-or-newer non-vulnerable version" in prompt
+    assert "Regenerate dependency lockfile metadata" in prompt
+    assert "Never hand-edit resolved URLs, checksums, integrity hashes" in prompt
+
+
+def test_dependabot_checks_fail_fast_and_verify_node_lockfile_integrity(
+    tmp_path: Path,
+) -> None:
+    call_log = tmp_path / "calls.txt"
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+refresh_runtime_after_dependency_worktree_changes() {{
+  printf 'refresh\\n' >> {shlex.quote(str(call_log))}
+}}
+run_check_capture() {{
+  printf 'gate:%s\\n' "$1" >> {shlex.quote(str(call_log))}
+}}
+node_dependency_metadata_changed() {{ return 0; }}
+run_local_workflow_checks() {{
+  printf 'workflow-checks\\n' >> {shlex.quote(str(call_log))}
+}}
+run_dependabot_workflow_checks
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    assert call_log.read_text(encoding="utf-8").splitlines() == [
+        "refresh",
+        "gate:Run Python dependency vulnerability audit",
+        "gate:Run Node runtime dependency vulnerability audit",
+        "gate:Run full Node dependency vulnerability audit",
+        "gate:Verify Node dependency lockfile install integrity",
+        "workflow-checks",
+    ]
+
+
 def test_security_alert_remediation_refuses_empty_new_branch(tmp_path: Path) -> None:
     call_log = tmp_path / "calls.txt"
     alerts_json = json.dumps([{"number": 75}])

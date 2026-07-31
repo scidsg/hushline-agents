@@ -55,7 +55,7 @@ assigned GitHub issue into one reviewed pull request.
 1. Pull and clean the latest base branch before any PR or issue work.
 2. Read every open Dependabot Security-tab alert and process every open, non-draft, same-repository PR authored by the exact trusted Dependabot identity, oldest first.
 3. For each dependency PR, inspect release/advisory and open-alert context plus affected package usage across application, tests, build, CI, and operations; apply all required compatibility and security work.
-4. Run `make lint`, `make test`, `make audit-python`, `make audit-node-runtime`, and `make audit-node-full` for Node dependency updates.
+4. Run Python and Node vulnerability audits first, verify changed Node lockfiles with an integrity-enforcing clean install, then run `make lint` and `make test`.
 5. Approve only when the PR tip is still authored by Dependabot, enable squash auto-merge, and wait for repository protections. A runner-authored compatibility commit must receive independent last-push approval.
 6. When alerts remain after the Dependabot PR queue drains, create or resume the dedicated signed `codex/dependabot-security-remediation` PR, validate it, and enable protected auto-merge.
 7. Keep ordinary issue work deferred while any Dependabot PR or security alert remains open, but continue assessing other open Dependabot PRs when one is awaiting approval.
@@ -82,7 +82,10 @@ Every queued issue is assumed to require a real change. Once the runner claims a
    - process oldest first and continue through the initial open set even if one PR needs independent approval
    - include every open alert in dependency assessment so one update can remediate all applicable advisories
    - inspect package use across the whole repository and apply necessary compatibility, security, test, or documentation updates
-   - run lint, full tests, Python and Node runtime audits, plus the full Node audit for Node dependency metadata
+   - fail fast on Python and Node vulnerability audits before the expensive test suite
+   - verify changed Node lockfiles with an integrity-enforcing `npm ci --ignore-scripts` clean install so invalid registry metadata cannot reach CI
+   - preserve prior security fixes across repair attempts and regenerate lockfiles rather than hand-editing package-manager checksums
+   - run lint and the full test suite after dependency audits and install-integrity checks pass
    - approve only an unchanged Dependabot-authored tip; never let the runner approve its own compatibility commit
    - enable protected squash auto-merge and defer ordinary issue work until every dependency PR closes
    - if alerts remain with no open Dependabot PR, create or resume the dedicated signed security-remediation branch and PR
