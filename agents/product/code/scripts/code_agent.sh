@@ -43,6 +43,7 @@ DEPENDABOT_LOGIN="${HUSHLINE_DEPENDABOT_LOGIN:-app/dependabot}"
 DEPENDABOT_COMMIT_LOGIN="${HUSHLINE_DEPENDABOT_COMMIT_LOGIN:-dependabot[bot]}"
 BOT_GIT_NAME="${HUSHLINE_BOT_GIT_NAME:-$BOT_LOGIN}"
 BOT_GIT_EMAIL="${HUSHLINE_BOT_GIT_EMAIL:-166439242+hushline-dev@users.noreply.github.com}"
+BOT_LEGACY_GIT_EMAIL="${HUSHLINE_BOT_LEGACY_GIT_EMAIL:-git-dev@scidsg.org}"
 BOT_GIT_GPG_FORMAT="${HUSHLINE_BOT_GIT_GPG_FORMAT:-ssh}"
 BOT_GIT_SIGNING_KEY="${HUSHLINE_BOT_GIT_SIGNING_KEY:-}"
 DEFAULT_BOT_GIT_SSH_SIGNING_KEY_PATH="${HUSHLINE_BOT_GIT_DEFAULT_SSH_SIGNING_KEY_PATH:-}"
@@ -4556,6 +4557,86 @@ approve_dependabot_pr_if_eligible() {
   return 1
 }
 
+normalize_legacy_unverified_dependabot_tail() {
+  local pr_number="$1"
+  local head_branch="$2"
+  local commit_sha=""
+  local verification=""
+  local verified=""
+  local reason=""
+  local author_login=""
+  local author_identity=""
+  local author_name=""
+  local author_email=""
+  local first_legacy_sha=""
+  local replacement_base=""
+  local lease_oid=""
+  local remote_head_oid=""
+  local legacy_count=0
+  local saw_legacy=0
+
+  while IFS= read -r commit_sha; do
+    [[ -n "$commit_sha" ]] || continue
+    verification="$(
+      gh api "repos/${REPO_SLUG}/commits/${commit_sha}" \
+        --jq '[
+          .commit.verification.verified,
+          .commit.verification.reason,
+          (.author.login // "-")
+        ] | @tsv'
+    )"
+    IFS=$'\t' read -r verified reason author_login <<< "$verification"
+    if [[ "$verified" == "true" ]]; then
+      if (( saw_legacy == 1 )); then
+        echo "Blocked: verified commit ${commit_sha:0:12} follows an unverified runner commit in Dependabot PR #${pr_number}; refusing to rewrite non-tail history." >&2
+        return 1
+      fi
+      continue
+    fi
+
+    author_identity="$(git show -s --format='%an%x09%ae' "$commit_sha")"
+    IFS=$'\t' read -r author_name author_email <<< "$author_identity"
+    if [[ "$reason" != "no_user" \
+      || "$author_name" != "$BOT_GIT_NAME" \
+      || "$author_email" != "$BOT_LEGACY_GIT_EMAIL" ]]; then
+      echo "Blocked: Dependabot PR #${pr_number} contains unverified commit ${commit_sha:0:12} that is not an owned legacy runner commit (reason=${reason}, author=${author_login}, email=${author_email})." >&2
+      return 1
+    fi
+    if ! git verify-commit "$commit_sha" >/dev/null 2>&1; then
+      echo "Blocked: legacy runner commit ${commit_sha:0:12} in Dependabot PR #${pr_number} does not have a valid local cryptographic signature." >&2
+      return 1
+    fi
+
+    if [[ -z "$first_legacy_sha" ]]; then
+      first_legacy_sha="$commit_sha"
+    fi
+    saw_legacy=1
+    legacy_count=$((legacy_count + 1))
+  done < <(git rev-list --reverse "origin/main..HEAD")
+
+  if (( legacy_count == 0 )); then
+    return 0
+  fi
+
+  lease_oid="$(git rev-parse HEAD)"
+  remote_head_oid="$(
+    git ls-remote origin "refs/heads/${head_branch}" | awk 'NR == 1 { print $1 }'
+  )"
+  if [[ "$remote_head_oid" != "$lease_oid" ]]; then
+    echo "Blocked: Dependabot branch ${head_branch} moved before legacy signature normalization; refusing to rewrite it." >&2
+    return 1
+  fi
+
+  replacement_base="$(git rev-parse "${first_legacy_sha}^")"
+  git reset --soft "$replacement_base"
+  git commit -m "build(deps): complete Dependabot update #${pr_number}"
+  git push \
+    "--force-with-lease=refs/heads/${head_branch}:${lease_oid}" \
+    origin \
+    "HEAD:refs/heads/${head_branch}"
+  echo "Replaced ${legacy_count} locally signed legacy runner commit(s) on Dependabot PR #${pr_number} with one remotely attributable signed commit."
+}
+
 assert_remote_commit_range_verified() {
   local base_ref="$1"
   local head_ref="$2"
@@ -4609,6 +4690,188 @@ assert_remote_commit_range_verified() {
   fi
 
   echo "GitHub remotely verified ${commit_count} commit(s) for ${work_label}."
+}
+
+bot_has_active_branch_ruleset_bypass() {
+  local bot_actor_id=""
+  local ruleset_id=""
+  local ruleset_json=""
+  local ruleset_name=""
+  local protected_ref="refs/heads/${BASE_BRANCH}"
+
+  bot_actor_id="$(gh api user --jq '.id')" || return 1
+  while IFS= read -r ruleset_id; do
+    [[ -n "$ruleset_id" ]] || continue
+    ruleset_json="$(gh api "repos/${REPO_SLUG}/rulesets/${ruleset_id}")" || continue
+    if jq -e \
+      --arg protected_ref "$protected_ref" \
+      --argjson bot_actor_id "$bot_actor_id" \
+      '
+        .enforcement == "active"
+        and .target == "branch"
+        and any(.rules[]?; .type == "pull_request")
+        and (
+          (.conditions.ref_name.include // [])
+          | any(. == $protected_ref or . == "~DEFAULT_BRANCH" or . == "~ALL")
+        )
+        and any(
+          .bypass_actors[]?;
+          .actor_type == "User"
+          and .actor_id == $bot_actor_id
+          and (.bypass_mode == "always" or .bypass_mode == "pull_request")
+        )
+      ' <<< "$ruleset_json" >/dev/null; then
+      ruleset_name="$(jq -r '.name' <<< "$ruleset_json")"
+      echo "Confirmed ${BOT_LOGIN} review bypass in active ruleset '${ruleset_name}' (${ruleset_id})."
+      return 0
+    fi
+  done < <(
+    gh api "repos/${REPO_SLUG}/rulesets" \
+      --paginate \
+      --jq '.[] | select(.enforcement == "active" and .target == "branch") | .id'
+  )
+
+  return 1
+}
+
+wait_for_pr_bypass_readiness() {
+  local pr_number="$1"
+  local expected_head_oid="$2"
+  local started_at=""
+  local now=""
+  local elapsed=""
+  local summary=""
+  local state=""
+  local head_oid=""
+  local mergeable=""
+  local merge_state=""
+  local pending_checks=""
+  local blocking_checks=""
+  local required_rc=0
+  local feedback_json=""
+  local unresolved_threads=""
+
+  started_at="$(date +%s)"
+  while :; do
+    summary="$(
+      gh pr view "$pr_number" \
+        --repo "$REPO_SLUG" \
+        --json state,headRefOid,mergeable,mergeStateStatus,statusCheckRollup \
+        --jq '[
+          .state,
+          .headRefOid,
+          (.mergeable // "UNKNOWN"),
+          (.mergeStateStatus // "UNKNOWN"),
+          ([.statusCheckRollup[]? | select(.status != "COMPLETED")] | length),
+          ([
+            .statusCheckRollup[]?
+            | select(
+                .status == "COMPLETED"
+                and (.conclusion != "SUCCESS"
+                  and .conclusion != "SKIPPED"
+                  and .conclusion != "NEUTRAL")
+              )
+          ] | length)
+        ] | @tsv'
+    )"
+    IFS=$'\t' read -r \
+      state \
+      head_oid \
+      mergeable \
+      merge_state \
+      pending_checks \
+      blocking_checks <<< "$summary"
+
+    if [[ "$state" != "OPEN" ]]; then
+      echo "Dependabot PR #${pr_number} is no longer open."
+      return 0
+    fi
+    if [[ "$head_oid" != "$expected_head_oid" ]]; then
+      echo "Blocked: Dependabot PR #${pr_number} head changed from ${expected_head_oid:0:12} to ${head_oid:0:12} while waiting to merge." >&2
+      return 1
+    fi
+    if (( blocking_checks > 0 )); then
+      echo "Blocked: Dependabot PR #${pr_number} has ${blocking_checks} non-passing check(s); review bypass will not be used." >&2
+      return 1
+    fi
+
+    set +e
+    gh pr checks "$pr_number" --repo "$REPO_SLUG" --required >/dev/null 2>&1
+    required_rc=$?
+    set -e
+    if (( required_rc != 0 && required_rc != 8 )); then
+      echo "Blocked: required checks are not passing for Dependabot PR #${pr_number}; review bypass will not be used." >&2
+      return 1
+    fi
+
+    if (( pending_checks == 0 && required_rc == 0 )); then
+      if [[ "$mergeable" != "MERGEABLE" \
+        || "$merge_state" == "BEHIND" \
+        || "$merge_state" == "DIRTY" \
+        || "$merge_state" == "UNKNOWN" ]]; then
+        echo "Blocked: Dependabot PR #${pr_number} is not safely mergeable (mergeable=${mergeable}, merge_state=${merge_state}); review bypass will not be used." >&2
+        return 1
+      fi
+      feedback_json="$(fetch_pr_feedback_json "$pr_number")" || return 1
+      unresolved_threads="$(
+        jq '[
+          .data.repository.pullRequest.reviewThreads.nodes[]?
+          | select(.isResolved == false)
+        ] | length' <<< "$feedback_json"
+      )"
+      if (( unresolved_threads > 0 )); then
+        echo "Blocked: Dependabot PR #${pr_number} has ${unresolved_threads} unresolved review thread(s); review bypass will not be used." >&2
+        return 1
+      fi
+      echo "Dependabot PR #${pr_number} is ready for review-only bypass: all checks pass, the head is unchanged, the branch is mergeable, and review threads are resolved."
+      return 0
+    fi
+
+    now="$(date +%s)"
+    elapsed=$((now - started_at))
+    echo "Waiting to use review-only bypass for Dependabot PR #${pr_number}: pending_checks=${pending_checks} required_checks_rc=${required_rc} merge=${merge_state} elapsed=${elapsed}s/${DEPENDABOT_MERGE_WAIT_SECONDS}s."
+    if (( elapsed >= DEPENDABOT_MERGE_WAIT_SECONDS )); then
+      echo "Blocked: Dependabot PR #${pr_number} checks did not become bypass-ready within ${DEPENDABOT_MERGE_WAIT_SECONDS}s." >&2
+      return 1
+    fi
+    sleep "$DEPENDABOT_MERGE_POLL_SECONDS"
+  done
+}
+
+merge_dependabot_pr_with_policy() {
+  local pr_number="$1"
+  local expected_head_oid="$2"
+
+  if bot_has_active_branch_ruleset_bypass; then
+    if ! wait_for_pr_bypass_readiness "$pr_number" "$expected_head_oid"; then
+      return 1
+    fi
+    if ! gh pr merge "$pr_number" \
+      --repo "$REPO_SLUG" \
+      --admin \
+      --squash \
+      --delete-branch \
+      --match-head-commit "$expected_head_oid"; then
+      echo "Blocked: failed to use the configured review bypass for Dependabot PR #${pr_number}." >&2
+      return 1
+    fi
+    echo "Merged Dependabot PR #${pr_number} with the configured ${BOT_LOGIN} ruleset bypass after all non-review protections passed."
+    return 0
+  fi
+
+  if ! approve_dependabot_pr_if_eligible "$pr_number"; then
+    return 1
+  fi
+  if ! gh pr merge "$pr_number" \
+    --repo "$REPO_SLUG" \
+    --auto \
+    --squash \
+    --delete-branch; then
+    echo "Blocked: failed to enable policy-compliant auto-merge for Dependabot PR #${pr_number}." >&2
+    return 1
+  fi
+  echo "Enabled policy-compliant auto-merge for Dependabot PR #${pr_number}."
+  wait_for_dependabot_pr_terminal_state "$pr_number"
 }
 
 process_dependabot_pr() {
@@ -4698,6 +4961,10 @@ process_dependabot_pr() {
     echo "Dependency assessment found no application changes required for PR #${pr_number}."
   fi
 
+  if ! normalize_legacy_unverified_dependabot_tail "$pr_number" "$head_branch"; then
+    return 1
+  fi
+
   if ! assert_remote_commit_range_verified \
     "origin/main" \
     HEAD \
@@ -4705,20 +4972,10 @@ process_dependabot_pr() {
     return 1
   fi
 
-  if ! approve_dependabot_pr_if_eligible "$pr_number"; then
+  expected_head_oid="$(git rev-parse HEAD)"
+  if ! merge_dependabot_pr_with_policy "$pr_number" "$expected_head_oid"; then
     return 1
   fi
-
-  if ! gh pr merge "$pr_number" \
-    --repo "$REPO_SLUG" \
-    --auto \
-    --squash \
-    --delete-branch; then
-    echo "Blocked: failed to enable policy-compliant auto-merge for Dependabot PR #${pr_number}." >&2
-    return 1
-  fi
-  echo "Enabled policy-compliant auto-merge for Dependabot PR #${pr_number}."
-  wait_for_dependabot_pr_terminal_state "$pr_number"
 }
 
 write_dependabot_security_pr_body() {
@@ -4891,20 +5148,10 @@ process_open_dependabot_security_alerts() {
     return 1
   fi
 
-  if ! gh pr merge "$pr_number" \
-    --repo "$REPO_SLUG" \
-    --auto \
-    --squash \
-    --delete-branch; then
-    echo "Blocked: failed to enable protected auto-merge for security remediation PR #${pr_number}." >&2
+  expected_head_oid="$(git rev-parse HEAD)"
+  if ! merge_dependabot_pr_with_policy "$pr_number" "$expected_head_oid"; then
     return 1
   fi
-  if (( created_pr == 1 )); then
-    echo "Security remediation PR #${pr_number} requires independent last-push approval; auto-merge is enabled."
-  else
-    echo "Refreshed protected auto-merge for security remediation PR #${pr_number}."
-  fi
-  wait_for_dependabot_pr_terminal_state "$pr_number"
 }
 
 process_open_dependabot_prs() {
