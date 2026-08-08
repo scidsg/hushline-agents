@@ -6,6 +6,7 @@ AGENTS_REPO_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 DEFAULT_SOCIAL_REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_DIR="${HUSHLINE_SOCIAL_REPO_DIR:-$DEFAULT_SOCIAL_REPO_DIR}"
 export HUSHLINE_SOCIAL_REPO_DIR="$REPO_DIR"
+SOCIAL_LOG_DIR="${HUSHLINE_SOCIAL_LOG_DIR:-$AGENTS_REPO_DIR/logs/social}"
 SCOPE="gui"
 ENV_FILE="$REPO_DIR/.env.launchd"
 APP_USER="${SUDO_USER:-${USER}}"
@@ -79,6 +80,7 @@ render_plist() {
   local target_path="$2"
   local repo_dir_escaped=""
   local social_repo_dir_escaped=""
+  local social_log_dir_escaped=""
   local home_dir_escaped=""
   local env_file_escaped=""
   local user_name_escaped=""
@@ -86,6 +88,7 @@ render_plist() {
 
   repo_dir_escaped="$(escape_sed_replacement "$AGENTS_REPO_DIR")"
   social_repo_dir_escaped="$(escape_sed_replacement "$REPO_DIR")"
+  social_log_dir_escaped="$(escape_sed_replacement "$SOCIAL_LOG_DIR")"
   home_dir_escaped="$(escape_sed_replacement "$APP_HOME")"
   env_file_escaped="$(escape_sed_replacement "$ENV_FILE")"
   user_name_escaped="$(escape_sed_replacement "$APP_USER")"
@@ -94,6 +97,7 @@ render_plist() {
   sed \
     -e "s|__REPO_DIR__|$repo_dir_escaped|g" \
     -e "s|__SOCIAL_REPO_DIR__|$social_repo_dir_escaped|g" \
+    -e "s|__SOCIAL_LOG_DIR__|$social_log_dir_escaped|g" \
     -e "s|__HOME_DIR__|$home_dir_escaped|g" \
     -e "s|__ENV_FILE__|$env_file_escaped|g" \
     -e "s|__USER_NAME__|$user_name_escaped|g" \
@@ -158,7 +162,7 @@ main() {
     exit 1
   fi
 
-  mkdir -p "$AGENTS_REPO_DIR/logs/social"
+  mkdir -p "$SOCIAL_LOG_DIR"
   mkdir -p "$REPO_DIR/logs"
   mkdir -p "$REPO_DIR/.tmp"
 
@@ -268,13 +272,13 @@ Installed launchd jobs ($SCOPE):
 - ${SCOPE/daemon/system}/com.hushline.social.hushline-verified-user-post-agent
 
 Logs:
-- $AGENTS_REPO_DIR/logs/social/whistleblower-news-post-agent.stdout.log
-- $AGENTS_REPO_DIR/logs/social/whistleblower-news-post-agent.stderr.log
-- $AGENTS_REPO_DIR/logs/social/hushline-feature-post-agent.stdout.log
-- $AGENTS_REPO_DIR/logs/social/hushline-feature-post-agent.stderr.log
-- $AGENTS_REPO_DIR/logs/social/hushline-verified-user-post-agent.stdout.log
-- $AGENTS_REPO_DIR/logs/social/hushline-verified-user-post-agent.stderr.log
-- $AGENTS_REPO_DIR/logs/social/social-daily.log
+- $SOCIAL_LOG_DIR/whistleblower-news-post-agent.stdout.log
+- $SOCIAL_LOG_DIR/whistleblower-news-post-agent.stderr.log
+- $SOCIAL_LOG_DIR/hushline-feature-post-agent.stdout.log
+- $SOCIAL_LOG_DIR/hushline-feature-post-agent.stderr.log
+- $SOCIAL_LOG_DIR/hushline-verified-user-post-agent.stdout.log
+- $SOCIAL_LOG_DIR/hushline-verified-user-post-agent.stderr.log
+- $SOCIAL_LOG_DIR/social-daily.log
 
 Next steps:
 - env file: $ENV_FILE

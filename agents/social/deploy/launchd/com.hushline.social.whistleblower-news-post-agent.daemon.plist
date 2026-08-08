@@ -28,7 +28,7 @@
     <key>HUSHLINE_SOCIAL_REPO_DIR</key>
     <string>__SOCIAL_REPO_DIR__</string>
     <key>HUSHLINE_SOCIAL_COMBINED_LOG_FILE</key>
-    <string>__REPO_DIR__/logs/social/social-daily.log</string>
+    <string>__SOCIAL_LOG_DIR__/social-daily.log</string>
     <key>HUSHLINE_SOCIAL_LAUNCHD_SCOPE</key>
     <string>daemon</string>
     <key>PATH</key>
@@ -50,9 +50,9 @@
   </dict>
 
   <key>StandardOutPath</key>
-  <string>__REPO_DIR__/logs/social/whistleblower-news-post-agent.stdout.log</string>
+  <string>__SOCIAL_LOG_DIR__/whistleblower-news-post-agent.stdout.log</string>
 
   <key>StandardErrorPath</key>
-  <string>__REPO_DIR__/logs/social/whistleblower-news-post-agent.stderr.log</string>
+  <string>__SOCIAL_LOG_DIR__/whistleblower-news-post-agent.stderr.log</string>
 </dict>
 </plist>

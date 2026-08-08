@@ -47,11 +47,9 @@ def test_social_launchd_templates_pass_social_repo_dir_and_logs() -> None:
 
         assert env["HUSHLINE_SOCIAL_REPO_DIR"] == "__SOCIAL_REPO_DIR__"
         assert env["HUSHLINE_SOCIAL_ENV_FILE"] == "__ENV_FILE__"
-        assert (
-            env["HUSHLINE_SOCIAL_COMBINED_LOG_FILE"] == "__REPO_DIR__/logs/social/social-daily.log"
-        )
-        assert plist["StandardOutPath"].startswith("__REPO_DIR__/logs/social/")
-        assert plist["StandardErrorPath"].startswith("__REPO_DIR__/logs/social/")
+        assert env["HUSHLINE_SOCIAL_COMBINED_LOG_FILE"] == "__SOCIAL_LOG_DIR__/social-daily.log"
+        assert plist["StandardOutPath"].startswith("__SOCIAL_LOG_DIR__/")
+        assert plist["StandardErrorPath"].startswith("__SOCIAL_LOG_DIR__/")
 
 
 def test_social_launchd_templates_use_named_post_agents() -> None:
