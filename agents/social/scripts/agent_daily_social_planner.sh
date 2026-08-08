@@ -26,7 +26,7 @@ ALLOW_WEEKEND=0
 LAST_VALIDATION_OUTPUT=""
 EXCLUDED_SCREENSHOTS=()
 
-CODEX_MODEL="${CODEX_MODEL:-gpt-5.5}"
+CODEX_MODEL="${CODEX_MODEL:-gpt-5.6-sol}"
 CODEX_REASONING_EFFORT="${CODEX_REASONING_EFFORT:-high}"
 CODEX_MAX_ATTEMPTS="${HUSHLINE_SOCIAL_CODEX_MAX_ATTEMPTS:-3}"
 CODEX_RETRY_DELAY_SECONDS="${HUSHLINE_SOCIAL_CODEX_RETRY_DELAY_SECONDS:-30}"
@@ -131,6 +131,7 @@ build_context() {
   [[ -n "$ARCHIVE_KEY" ]] && cmd+=(--archive-key "$ARCHIVE_KEY")
   [[ -n "$CANDIDATE_COUNT" ]] && cmd+=(--candidate-count "$CANDIDATE_COUNT")
   [[ -n "$DARK_RATIO" ]] && cmd+=(--dark-ratio "$DARK_RATIO")
+  (( ALLOW_WEEKEND == 1 )) && cmd+=(--allow-weekend)
   local excluded=""
   if (( ${#EXCLUDED_SCREENSHOTS[@]} > 0 )); then
     for excluded in "${EXCLUDED_SCREENSHOTS[@]}"; do

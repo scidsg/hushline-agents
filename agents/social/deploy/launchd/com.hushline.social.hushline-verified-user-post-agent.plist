@@ -24,7 +24,7 @@
     <key>HUSHLINE_SOCIAL_REPO_DIR</key>
     <string>__SOCIAL_REPO_DIR__</string>
     <key>HUSHLINE_SOCIAL_COMBINED_LOG_FILE</key>
-    <string>__REPO_DIR__/logs/social/social-daily.log</string>
+    <string>__SOCIAL_LOG_DIR__/social-daily.log</string>
     <key>HUSHLINE_SOCIAL_LAUNCHD_SCOPE</key>
     <string>gui</string>
     <key>PATH</key>
@@ -79,9 +79,9 @@
   </array>
 
   <key>StandardOutPath</key>
-  <string>__REPO_DIR__/logs/social/hushline-verified-user-post-agent.stdout.log</string>
+  <string>__SOCIAL_LOG_DIR__/hushline-verified-user-post-agent.stdout.log</string>
 
   <key>StandardErrorPath</key>
-  <string>__REPO_DIR__/logs/social/hushline-verified-user-post-agent.stderr.log</string>
+  <string>__SOCIAL_LOG_DIR__/hushline-verified-user-post-agent.stderr.log</string>
 </dict>
 </plist>

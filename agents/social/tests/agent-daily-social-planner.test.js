@@ -19,6 +19,17 @@ const socialRepoRunLockLibPath = path.join(
 );
 const updateRunReposLibPath = path.join(REPO_ROOT, "scripts", "lib", "update-run-repos.sh");
 
+test("daily planner forwards the weekend override to the Node planner", () => {
+  const planner = fs.readFileSync(plannerScriptPath, "utf8");
+  const buildContext = planner.slice(
+    planner.indexOf("build_context() {"),
+    planner.indexOf("\n}\n", planner.indexOf("build_context() {")),
+  );
+
+  assert.match(buildContext, /ALLOW_WEEKEND == 1/);
+  assert.match(buildContext, /cmd\+=\(--allow-weekend\)/);
+});
+
 function shellQuote(value) {
   return `'${String(value).replaceAll("'", "'\\''")}'`;
 }
