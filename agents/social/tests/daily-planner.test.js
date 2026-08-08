@@ -167,6 +167,12 @@ test("parseArgs accepts explicit cooldown windows and override", () => {
   });
 });
 
+test("parseArgs accepts an explicit weekend override", () => {
+  const args = parseArgs(["--date", "2026-03-21", "--allow-weekend"]);
+
+  assert.equal(args.allowWeekend, true);
+});
+
 test("parseArgs rejects archive keys outside the requested planned date", () => {
   assert.throws(
     () => parseArgs(["--date", "2026-03-20", "--archive-key", "2026-03-21-1"]),

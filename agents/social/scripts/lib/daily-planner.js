@@ -507,6 +507,7 @@ function buildCooldownPolicy(overrides = {}) {
 function parseArgs(argv) {
   const args = {
     allowCooldownOverride: false,
+    allowWeekend: false,
     archiveKey: null,
     candidateCount: 12,
     conceptKeyCooldownPosts: null,
@@ -551,6 +552,8 @@ function parseArgs(argv) {
       index += 1;
     } else if (value === "--allow-cooldown-override") {
       args.allowCooldownOverride = true;
+    } else if (value === "--allow-weekend") {
+      args.allowWeekend = true;
     } else if (value === "--no-render") {
       args.noRender = true;
     } else if (value === "--help" || value === "-h") {
@@ -603,6 +606,7 @@ function printHelp() {
       "  node scripts/plan-day.js --date 2026-03-19 --candidate-count 12",
       "  node scripts/plan-day.js --date 2026-03-19 --archive-key 2026-03-19-1",
       "  node scripts/plan-day.js --date 2026-03-19 --topic-family-cooldown-posts 5",
+      "  node scripts/plan-day.js --date 2026-03-21 --allow-weekend",
       "",
       "Behavior:",
       "  - Reads audience context from Hush Line docs and ../hushline/AGENTS.md",
@@ -2352,7 +2356,7 @@ async function renderDailyPlan(plan, archiveKey = plan.date) {
 }
 
 async function planDay(args) {
-  if (isWeekendDate(args.date)) {
+  if (isWeekendDate(args.date) && !args.allowWeekend) {
     throw new Error(`Weekend dates are excluded from the daily planner: ${args.date} (${getWeekdayLabel(args.date)}).`);
   }
 
