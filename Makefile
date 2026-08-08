@@ -9,7 +9,7 @@ lint: ## Check Python formatting, lint, typing, and shell syntax
 	python3 -m ruff format --check .
 	python3 -m ruff check .
 	python3 -m mypy agents
-	for script in agents/product/code/scripts/*.sh agents/social/scripts/*.sh agents/social/scripts/lib/*.sh agents/sales/scripts/*.sh; do bash -n "$$script"; done
+	for script in agents/product/code/scripts/*.sh agents/product/reporting/scripts/*.sh agents/social/scripts/*.sh agents/social/scripts/lib/*.sh agents/sales/scripts/*.sh; do bash -n "$$script"; done
 	python3 agents/social/scripts/validate_social_plists.py
 
 .PHONY: fix

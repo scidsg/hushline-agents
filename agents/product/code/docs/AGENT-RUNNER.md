@@ -8,6 +8,7 @@ This document tracks the current state of the repo-managed agent automation used
 | ----------------------------------------------------- | ------------------------------ | ------------------------------------------------------------- | ----------------------------------------------------------------- |
 | `agents/product/code/scripts/code_agent.sh`            | GitHub issue implementation    | Paused on this host; configured for 10-minute launchd cadence | issue-specific branches and PRs                                   |
 | `agents/product/reporting/scripts/weekly_hushline_code_agent_report_runner.py` | Weekly local agent reporting   | Active, local Mail.app delivery and local report persistence  | configured email recipient; local `logs/weekly-agent-reports/`    |
+| `agents/product/reporting/scripts/monthly_board_report_runner.py` | Monthly board reporting | Ready for launchd install; local Mail.app delivery and idempotent local state | `admin@hushline.app` to configured board recipient; local `logs/monthly-board-reports/` |
 | `agents/sales/scripts/sales_contact_agent.py` | Daily sales outreach from contact-form audit | Active when installed; Mail.app delivery gated by recipient-local 04:00-09:00 window | `sales@hushline.app`; local `logs/sales/` state and drafts |
 | `agents/product/code/scripts/agent_issue_bootstrap.sh` | Local runtime/bootstrap helper | Active, manual helper used by issue and local workflows       | local Docker/bootstrap only                                       |
 | `agents/product/code/scripts/open_runner_dashboard.sh` | Local runner dashboard         | Active as a GUI LaunchAgent at user login after reboot        | Terminal windows and local dashboard launch logs                  |
@@ -24,6 +25,7 @@ files are added under an explicit agent scope.
 | com.hushline.social.whistleblower-news-post-agent | Whistleblower news article post      | Daily, random publish target 4-9 AM       | com.hushline.social.whistleblower-news-post-agent.plist |
 | com.hushline.social.hushline-feature-post-agent   | Hush Line feature screenshot post    | Daily, random publish target 4-9 AM       | com.hushline.social.hushline-feature-post-agent.plist   |
 | com.hushline.weekly-agent-report                  | Weekly local agent report            | Sunday at 10:30 PM                        | com.hushline.weekly-agent-report.plist                  |
+| com.hushline.monthly-board-report                 | Monthly board report                 | Days 28-31 at 6:30 PM; runner sends only on actual month end | com.hushline.monthly-board-report.plist |
 | com.hushline.social.hushline-verified-user-post-agent | Verified-user callout post       | Random weekday Mon-Fri, random publish target 4-9 AM | com.hushline.social.hushline-verified-user-post-agent.plist |
 | com.hushline.runner-dashboard                     | Local runner dashboard               | RunAtLoad in Aqua user session            | com.hushline.runner-dashboard.plist                     |
 
@@ -366,6 +368,56 @@ Manual dry run:
 ./agents/product/reporting/scripts/weekly_hushline_code_agent_report_runner.py --dry-run
 ```
 
+## Monthly Board Report Runner
+
+Script: `agents/product/reporting/scripts/monthly_board_report_runner.py`
+
+This runner builds a deterministic plain-text `Hush Line Monthly Board Report` from
+local git history across the configured Hush Line repositories. It is intentionally
+not finance-specific: the default scan includes the sibling `hushline`,
+`hushline-agents`, and `hushline-finance` checkouts when present, then groups commits
+into board-readable workstreams such as privacy/safety, product experience,
+operations/automation, finance/administration, documentation/governance, and
+maintenance. The report does not use an LLM to decide accomplishments, does not approve
+expenses, and does not modify operational records.
+
+Mail.app delivery defaults to:
+
+- From: `admin@hushline.app`
+- To: `glenn@hushline.app`
+
+The sender is fixed at `admin@hushline.app`. Override the recipient with
+`HUSHLINE_MONTHLY_BOARD_REPORT_TO`. Override the scanned repositories with repeated
+`--repo NAME=PATH` arguments or the colon-separated
+`HUSHLINE_MONTHLY_BOARD_REPORT_REPOS` environment variable. Each configured checkout is
+scanned with `git log --all` for the month so the report uses all local refs, not
+whichever branch the checkout happens to have selected at launch time.
+
+The launchd template intentionally fires on days 28, 29, 30, and 31 at 6:30 PM local
+time because launchd does not have a portable "last day of month" primitive. The
+runner itself enforces the real last-day gate and records sent months in
+`logs/monthly-board-reports/state.json`, so retries or overlapping schedule days do not
+send duplicate board reports. `--month` selects the report month but does not bypass the
+last-day gate; use `--force` only for a deliberate manual backfill or resend.
+
+Persisted report bodies are written to
+`logs/monthly-board-reports/monthly-board-report-<month>-<timestamp>.txt` by default.
+The default retention is the newest `24` reports; override it with `--report-retention`
+or `HUSHLINE_MONTHLY_BOARD_REPORT_RETENTION`. Override the report directory with
+`--report-output-dir` or `HUSHLINE_MONTHLY_BOARD_REPORT_OUTPUT_DIR`.
+
+Manual dry run:
+
+```bash
+./agents/product/reporting/scripts/monthly_board_report_runner.py --dry-run --force
+```
+
+Install or refresh the GUI LaunchAgent:
+
+```bash
+./agents/product/reporting/scripts/install_monthly_board_report_launch_agent.sh
+```
+
 ## Sales Contact Agent
 
 Script: `sales/scripts/sales_contact_agent.py`
@@ -509,6 +561,11 @@ The runner now performs an SSH signing preflight immediately after configuring g
 - `HUSHLINE_DAILY_VERBOSE_CODEX_OUTPUT` (default `0`; set `1` to stream full Codex transcript output to the live console; transcript output is still excluded from persisted runner logs)
 - `HUSHLINE_WEEKLY_AGENT_REPORT_FROM` (required for Mail.app delivery)
 - `HUSHLINE_WEEKLY_AGENT_REPORT_TO` (required for Mail.app delivery)
+- `HUSHLINE_MONTHLY_BOARD_REPORT_TO` (default `glenn@hushline.app`)
+- `HUSHLINE_MONTHLY_BOARD_REPORT_REPOS` (optional colon-separated `NAME=PATH` list)
+- `HUSHLINE_MONTHLY_BOARD_REPORT_OUTPUT_DIR` (default `logs/monthly-board-reports/`)
+- `HUSHLINE_MONTHLY_BOARD_REPORT_RETENTION` (default `24`)
+- `HUSHLINE_MONTHLY_BOARD_REPORT_STATE_FILE` (default `logs/monthly-board-reports/state.json`)
 
 ## Issue Bootstrap Script
 
