@@ -16,6 +16,7 @@ const {
   filterCandidatesForEditorialIntent,
   filterCandidatesForArchiveHistory,
   filterCandidatesForCooldowns,
+  filterCandidatesForExactScreenshotRepeats,
   filterCandidatesForSaturatedTopics,
   filterCandidatesForWeeklyCaps,
   filterCandidatesForTemplateName,
@@ -27,6 +28,7 @@ const {
   refreshDailyContextArchiveHistory,
   scoreEditorialCritic,
   selectCandidateShortlist,
+  summarizePreviousPostsForScreenshot,
   summarizeScreenshotRotation,
   validatePlan,
 } = require("../scripts/lib/daily-planner");
@@ -623,6 +625,42 @@ test("buildPromptPayload includes selected editorial format guidance", () => {
   assert.match(payload.user, /Use exactly the required content format/);
 });
 
+test("buildPromptPayload includes prior posts for each exact screenshot", () => {
+  const context = buildContext({
+    audience_docs: [],
+    hushline_agent_context: "",
+    hushline_app_voice_guidance: [],
+    recent_archive_history: [
+      {
+        archive_key: "2026-03-01",
+        content_format: "feature_benefit",
+        content_key: "guest-directory-verified",
+        date: "2026-03-01",
+        headline: "Show sources who is verified",
+        linkedin_copy: "Sources can check the directory before sending a message.",
+        screenshot_file: "guest/guest-directory-verified-desktop-light-fold.png",
+        subtext: "The directory marks verified recipients before first contact.",
+        topic_family: "directory",
+      },
+      {
+        archive_key: "2026-03-02",
+        content_key: "auth-settings-notifications",
+        screenshot_file: "artvandelay/auth-artvandelay-settings-notifications-desktop-light-fold.png",
+      },
+    ],
+    screenshot_captured_at: "2026-03-20T00:00:00Z",
+    screenshot_release: "test-release",
+    week: "2026-W12",
+  });
+  const payload = buildPromptPayload(context);
+
+  assert.match(payload.user, /Previous posts for each shortlisted screenshot:/);
+  assert.match(payload.user, /Here are all of the previous posts for this screenshot/);
+  assert.match(payload.user, /Show sources who is verified/);
+  assert.match(payload.user, /Sources can check the directory before sending a message/);
+  assert.match(payload.user, /say something unique that speaks to Hush Line.s core personas/);
+});
+
 test("validatePlan rejects a missing or mismatched content format", () => {
   assert.throws(
     () => validatePlan(
@@ -1108,6 +1146,108 @@ test("filterCandidatesForSaturatedTopics fails closed when only chat candidates 
   );
 });
 
+test("filterCandidatesForSaturatedTopics blocks repeated message-statuses posts", () => {
+  const filtered = filterCandidatesForSaturatedTopics(
+    [
+      {
+        content_key: "auth-artvandelay-settings-replies",
+        file: "artvandelay/auth-artvandelay-settings-replies-desktop-light-fold.png",
+        topic_family: "message-statuses",
+      },
+      {
+        content_key: "auth-artvandelay-settings-notifications",
+        file: "artvandelay/auth-artvandelay-settings-notifications-mobile-light-fold.png",
+        topic_family: "notifications",
+      },
+    ],
+    [
+      {
+        archive_key: "2026-06-01",
+        content_key: "auth-artvandelay-settings-replies",
+        topic_family: "message-statuses",
+      },
+    ],
+    "2026-06-30",
+  );
+
+  assert.deepEqual(
+    filtered.map((candidate) => candidate.content_key),
+    ["auth-artvandelay-settings-notifications"],
+  );
+});
+
+test("filterCandidatesForExactScreenshotRepeats blocks recent exact screenshot reuse", () => {
+  const filtered = filterCandidatesForExactScreenshotRepeats(
+    [
+      {
+        content_key: "guest-directory-verified",
+        file: "guest/guest-directory-verified-desktop-light-fold.png",
+        topic_family: "directory",
+      },
+      {
+        content_key: "auth-artvandelay-settings-notifications",
+        file: "artvandelay/auth-artvandelay-settings-notifications-mobile-light-fold.png",
+        topic_family: "notifications",
+      },
+    ],
+    [
+      {
+        archive_key: "2026-06-26-2",
+        screenshot_file: "guest/guest-directory-verified-desktop-light-fold.png",
+        topic_family: "directory",
+      },
+    ],
+    "2026-06-30",
+  );
+
+  assert.deepEqual(
+    filtered.map((candidate) => candidate.content_key),
+    ["auth-artvandelay-settings-notifications"],
+  );
+});
+
+
+test("validatePlan rejects exact screenshot reuse even during cooldown fallback", () => {
+  const context = buildContext({
+    candidate_screenshots: [
+      {
+        audience_scope: "public",
+        concept_key: "directory-verified",
+        content_key: "guest-directory-verified",
+        copy_brief: "Write for sources and public users evaluating or using Hush Line.",
+        cooldown_exhaustion_fallback: true,
+        cooldown_violations: [
+          {
+            archive_key: "2026-03-19",
+            field: "topic_family",
+            value: "directory",
+            window_posts: 5,
+          },
+        ],
+        file: "guest/guest-directory-verified-desktop-light-fold.png",
+        matched_pull_requests: [],
+        topic_family: "directory",
+        theme: "light",
+        title: "Directory - Verified",
+        viewport: "desktop",
+      },
+    ],
+    recent_archive_history: [
+      {
+        archive_key: "2026-03-19",
+        linkedin_copy: "People can find verified recipients before sending a tip.",
+        screenshot_file: "guest/guest-directory-verified-desktop-light-fold.png",
+        topic_family: "directory",
+      },
+    ],
+  });
+
+  assert.throws(
+    () => validatePlan(buildModelPlan(), context),
+    /repeats exact screenshot from 2026-03-19/,
+  );
+});
+
 test("validatePlan allows screenshot cooldown fallback candidates", () => {
   const context = buildContext({
     candidate_screenshots: [
@@ -1144,6 +1284,7 @@ test("validatePlan allows screenshot cooldown fallback candidates", () => {
         archive_key: "2026-03-19",
         concept_key: "directory-verified",
         linkedin_copy: "People can find verified recipients before sending a tip. Learn more at https://hushline.app/.",
+        screenshot_file: "guest/guest-directory-attorney-adam-j-levitt-mobile-light-fold.png",
         topic_family: "directory",
       },
     ],
@@ -1238,7 +1379,7 @@ test("validatePlan rejects messaging that duplicates a recent archive angle", ()
         archive_key: "2026-03-19",
         headline: "Let sources verify a recipient before they send a tip",
         linkedin_copy: "Sources can verify trust signals before sending a tip. Learn more at https://hushline.app/.",
-        screen_key: "directory-index",
+        screen_key: "directory-archive-headline",
         subtext: "The public directory highlights verified accounts before a message is sent.",
         topic_family: "directory",
       },
@@ -1305,7 +1446,7 @@ test("validatePlan allows an older same-topic archive outside the recent-feature
         archive_key: "2026-03-10",
         headline: "Verify a recipient before you send a tip",
         linkedin_copy: "Trust signals help people verify a recipient before they send a tip. Learn more at https://hushline.app/.",
-        screen_key: "directory-index",
+        screen_key: "directory-archive-old",
         subtext: "The public directory highlights trust signals before someone sends a message.",
         topic_family: "directory",
       },

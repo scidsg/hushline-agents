@@ -25,12 +25,17 @@ const {
 
 const DAILY_POSTS_ROOT = path.join(REPO_ROOT, "previous-posts");
 const ARCHIVE_LOOKBACK_DAYS = 90;
-const FEATURE_REPEAT_HARD_LOOKBACK_POSTS = 5;
+const FEATURE_REPEAT_HARD_LOOKBACK_POSTS = 45;
+const EXACT_SCREENSHOT_REPEAT_HARD_LOOKBACK_POSTS = 5;
 const EDITORIAL_CRITIC_THRESHOLD = 12;
 const SATURATED_TOPIC_POLICY = Object.freeze({
   "conversation-thread": {
     max_recent_count: 0,
     window_posts: 30,
+  },
+  "message-statuses": {
+    max_recent_count: 0,
+    window_posts: 45,
   },
 });
 const DEFAULT_COOLDOWN_POLICY = {
@@ -1040,6 +1045,49 @@ function summarizeCandidateHistory(candidate, archiveHistory) {
   return stats;
 }
 
+function summarizePreviousPostsForScreenshot(candidate, archiveHistory) {
+  const screenshotFile = candidate.file || candidate.screenshot_file || "";
+
+  if (!screenshotFile) {
+    return [];
+  }
+
+  return (archiveHistory || [])
+    .filter((entry) => entry.screenshot_file === screenshotFile)
+    .map((entry) => ({
+      archive_key: entry.archive_key,
+      content_format: entry.content_format || "",
+      content_key: entry.content_key || "",
+      date: entry.date || archiveKeyDate(entry.archive_key || ""),
+      headline: entry.headline || "",
+      linkedin_copy: entry.linkedin_copy || "",
+      subtext: entry.subtext || "",
+      topic_family: entry.topic_family || "",
+    }));
+}
+
+function attachPreviousPostsForScreenshot(candidate, archiveHistory) {
+  return {
+    ...candidate,
+    previous_posts_for_this_screenshot: summarizePreviousPostsForScreenshot(candidate, archiveHistory),
+  };
+}
+
+function summarizeShortlistedScreenshotHistory(candidates, archiveHistory) {
+  return (candidates || []).map((candidate) => {
+    const previousPosts = Array.isArray(candidate.previous_posts_for_this_screenshot)
+      ? candidate.previous_posts_for_this_screenshot
+      : summarizePreviousPostsForScreenshot(candidate, archiveHistory);
+
+    return {
+      content_key: candidate.content_key || "",
+      file: candidate.file || candidate.screenshot_file || "",
+      previous_posts_for_this_screenshot: previousPosts,
+      topic_family: candidate.topic_family || inferTopicFamily(candidate),
+    };
+  });
+}
+
 function summarizeWeeklyUsage(archiveHistory, plannedDate) {
   const week = formatIsoWeek(parseLocalDate(plannedDate));
 
@@ -1574,6 +1622,51 @@ function filterCandidatesForSaturatedTopics(candidates, archiveHistory, plannedD
   return allowed;
 }
 
+function exactScreenshotRepeatViolation(candidate, archiveHistory) {
+  const candidateScreenshot = candidate.file || candidate.screenshot_file || "";
+
+  if (!candidateScreenshot) {
+    return null;
+  }
+
+  const match = recentArchiveEntries(
+    archiveHistory || [],
+    EXACT_SCREENSHOT_REPEAT_HARD_LOOKBACK_POSTS,
+  ).find((entry) => entry.screenshot_file && entry.screenshot_file === candidateScreenshot);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    archive_key: match.archive_key,
+    screenshot_file: match.screenshot_file,
+    window_posts: EXACT_SCREENSHOT_REPEAT_HARD_LOOKBACK_POSTS,
+  };
+}
+
+function filterCandidatesForExactScreenshotRepeats(candidates, archiveHistory, plannedDate) {
+  const evaluated = candidates.map((candidate) => ({
+    ...candidate,
+    exact_screenshot_repeat_violation: exactScreenshotRepeatViolation(candidate, archiveHistory),
+  }));
+  const allowed = evaluated.filter((candidate) => !candidate.exact_screenshot_repeat_violation);
+
+  if (allowed.length === 0 && evaluated.length > 0) {
+    const screenshots = evaluated
+      .map((candidate) => candidate.exact_screenshot_repeat_violation?.screenshot_file)
+      .filter(Boolean);
+    const uniqueScreenshots = Array.from(new Set(screenshots)).join(", ");
+
+    throw new Error(
+      `No eligible screenshot candidates remain for ${plannedDate}; recent exact screenshot repeats are blocked: ${uniqueScreenshots || "unknown"}.`,
+    );
+  }
+
+  return allowed;
+}
+
+
 function candidateCooldownViolations(candidate, archiveHistory, cooldownPolicy = DEFAULT_COOLDOWN_POLICY) {
   const normalized = {
     ...candidate,
@@ -1741,13 +1834,8 @@ function buildDailyContext(args) {
   const archiveHistory = loadArchiveHistory(args.archiveKey);
   const contentFormatSelection = chooseContentFormat(archiveHistory, args.date);
   const templateNames = listDailyTemplateNames();
-  const variedCandidates = filterCandidatesForArchiveHistory(
-    planningContext.candidate_screenshots,
-    archiveHistory,
-    { currentArchiveKey: args.archiveKey },
-  );
   const weekEligibleCandidates = filterCandidatesForWeeklyCaps(
-    variedCandidates,
+    planningContext.candidate_screenshots,
     archiveHistory,
     args.date,
   );
@@ -1756,8 +1844,18 @@ function buildDailyContext(args) {
     archiveHistory,
     args.date,
   );
-  const cooldownEligibleCandidates = filterCandidatesForCooldowns(
+  const screenshotEligibleCandidates = filterCandidatesForExactScreenshotRepeats(
     topicEligibleCandidates,
+    archiveHistory,
+    args.date,
+  );
+  const variedCandidates = filterCandidatesForArchiveHistory(
+    screenshotEligibleCandidates,
+    archiveHistory,
+    { currentArchiveKey: args.archiveKey },
+  );
+  const cooldownEligibleCandidates = filterCandidatesForCooldowns(
+    variedCandidates,
     archiveHistory,
     cooldownPolicy,
   );
@@ -1780,6 +1878,9 @@ function buildDailyContext(args) {
   if (!selectedCandidate) {
     throw new Error(`No eligible screenshot candidates remain for ${args.date}.`);
   }
+  const enrichedSelectedCandidates = selectedCandidates.map(
+    (candidate) => attachPreviousPostsForScreenshot(candidate, archiveHistory),
+  );
   const desiredTemplateName = chooseTemplateNameForCandidate(
     selectedCandidate,
     {
@@ -1796,7 +1897,7 @@ function buildDailyContext(args) {
   return {
     archive_key: args.archiveKey,
     audience_docs: planningContext.audience_docs,
-    candidate_screenshots: selectedCandidates,
+    candidate_screenshots: enrichedSelectedCandidates,
     content_format_selection: contentFormatSelection,
     cooldown_policy: cooldownPolicy,
     cooldown_exhaustion_fallback: cooldownFallbackCandidates.length > 0
@@ -1879,6 +1980,30 @@ function buildPromptPayload(context) {
           ].join("\n");
         })
         .join("\n");
+  const shortlistedScreenshotHistory = summarizeShortlistedScreenshotHistory(
+    context.candidate_screenshots || [],
+    context.recent_archive_history || [],
+  );
+  const previousPostsByScreenshot = shortlistedScreenshotHistory.length === 0
+    ? "No shortlisted screenshots were provided."
+    : shortlistedScreenshotHistory
+        .map((candidate) => {
+          const previousPosts = candidate.previous_posts_for_this_screenshot || [];
+          const posts = previousPosts.length === 0
+            ? "  No previous posts for this exact screenshot were found in the loaded archive history."
+            : previousPosts
+                .map((entry) => [
+                  `  - ${entry.archive_key}: ${entry.content_key} [${entry.topic_family}]`,
+                  `    Format: ${entry.content_format || "unknown"}`,
+                  `    Headline: ${entry.headline || "n/a"}`,
+                  `    Subtext: ${entry.subtext || "n/a"}`,
+                  `    LinkedIn: ${entry.linkedin_copy || "n/a"}`,
+                ].join("\n"))
+                .join("\n");
+
+          return `${candidate.file}\nHere are all of the previous posts for this screenshot in the loaded archive history:\n${posts}`;
+        })
+        .join("\n\n");
 
   return {
     system: [
@@ -1930,6 +2055,9 @@ function buildPromptPayload(context) {
       "Recent archived daily posts to avoid repeating:",
       archiveHistory,
       "",
+      "Previous posts for each shortlisted screenshot:",
+      previousPostsByScreenshot,
+      "",
       "Available editorial formats:",
       JSON.stringify(context.content_format_selection?.available_formats || CONTENT_FORMATS, null, 2),
       "",
@@ -1948,6 +2076,7 @@ function buildPromptPayload(context) {
       "- Choose exactly one supporting screenshot from the provided candidates.",
       "- Use exactly the required content format and set `content_format` to that format id.",
       `- Check the prior ${ARCHIVE_LOOKBACK_DAYS} days of archived daily posts before you decide on the messaging angle.`,
+      "- For the chosen screenshot, read `previous_posts_for_this_screenshot`: here are all of the previous posts for this screenshot; say something unique that speaks to Hush Line's core personas instead of reusing those angles.",
       "- The candidates were preselected from a ranked pool after excluding recent repeats of the same screenshot, screen, feature family, and overused template types wherever possible.",
       "- The candidate shortlist enforces topic-family and concept-key cooldowns when fresh candidates exist.",
       "- If the current screenshot pool is exhausted, the shortlist may include least-bad cooldown fallback candidates; in that case, write a clearly fresh hook, value proposition, and CTA for the selected screenshot.",
@@ -2140,6 +2269,13 @@ function validatePlan(modelPlan, context) {
   if (topicViolation) {
     throw new Error(
       `Selected screenshot ${post.screenshot_file} uses saturated topic family ${topicViolation.topic_family}; recent archive already has ${topicViolation.recent_count} within the last ${topicViolation.window_posts} posts.`,
+    );
+  }
+
+  const exactScreenshotViolation = exactScreenshotRepeatViolation(candidate, context.recent_archive_history || []);
+  if (exactScreenshotViolation) {
+    throw new Error(
+      `Selected screenshot ${post.screenshot_file} repeats exact screenshot from ${exactScreenshotViolation.archive_key} within the last ${exactScreenshotViolation.window_posts} posts.`,
     );
   }
 
@@ -2387,11 +2523,13 @@ module.exports = {
   filterCandidatesForEditorialIntent,
   filterCandidatesForArchiveHistory,
   filterCandidatesForCooldowns,
+  filterCandidatesForExactScreenshotRepeats,
   filterCandidatesForSaturatedTopics,
   filterCandidatesForWeeklyCaps,
   filterCandidatesForTemplateName,
   getContentFormat,
   getEditorialAudience,
+  summarizePreviousPostsForScreenshot,
   inferTopicFamily,
   loadArchiveHistory,
   rankEditorialIntents,
