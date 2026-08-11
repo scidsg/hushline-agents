@@ -500,6 +500,8 @@ The runner now performs an SSH signing preflight immediately after configuring g
 - `HUSHLINE_DAILY_CODEX_STATUS_STALE_RESET_RECHECK_SECONDS` (default `600`; positive integer; backoff before rechecking when Codex reports low remaining 5h quota but the reset timestamp has already passed)
 - `HUSHLINE_DAILY_CODEX_STATUS_IDLE_CHECK_INTERVAL_SECONDS` (default `3600`; non-negative integer; when no issue work is assigned, perform at most one lightweight Codex `/status` check per interval, print the configured model, reasoning effort, and active Codex account, and do not wait on low quota)
 - `HUSHLINE_DAILY_CODEX_STATUS_IDLE_CHECK_STATE_FILE` (default: a hidden sibling file next to `HUSHLINE_DAILY_RUNNER_LOCK_DIR`, for example `/tmp/.hushline-code-agent.lock.codex-status-last-check`; stores the last idle `/status` attempt timestamp without placing files inside the lock directory)
+- `HUSHLINE_DAILY_GITHUB_READ_ATTEMPTS` (default `3`; positive integer; retries transient, fully verified GitHub reads before a startup guard fails closed)
+- `HUSHLINE_DAILY_GITHUB_READ_RETRY_DELAY_SECONDS` (default `2`; non-negative integer; delay between verified GitHub read attempts)
 - `HUSHLINE_DAILY_POST_PR_FEEDBACK_DELAY_SECONDS` (default `600`; non-negative integer; set `0` to skip continuous PR feedback monitoring; when enabled, the issue runner keeps the PR branch checked out and polls until the PR closes)
 - `HUSHLINE_DAILY_RUNNER_LOCK_DIR` (default `${TMPDIR:-/tmp}/hushline-code-agent.lock`)
 - `HUSHLINE_DEPENDABOT_MERGE_POLL_SECONDS` (default `30`; positive integer)

@@ -27,6 +27,7 @@ const {
   refreshDailyContextArchiveHistory,
   scoreEditorialCritic,
   selectCandidateShortlist,
+  selectFreshScreenshotCandidates,
   summarizeScreenshotRotation,
   validatePlan,
 } = require("../scripts/lib/daily-planner");
@@ -905,6 +906,50 @@ test("filterCandidatesForArchiveHistory treats repeats before the current cycle 
   assert.deepEqual(
     filtered.map((candidate) => candidate.content_key),
     ["auth-artvandelay-settings-encryption"],
+  );
+});
+
+test("selectFreshScreenshotCandidates expands rotation before accepting a saturated topic", () => {
+  const archiveHistory = [
+    {
+      archive_key: "2026-08-08",
+      content_key: "auth-newman-conversation-thread",
+      screenshot_file: "newman/auth-newman-conversation-thread-desktop-light-fold.png",
+      topic_family: "conversation-thread",
+    },
+    {
+      archive_key: "2026-08-07",
+      content_key: "auth-artvandelay-settings-notifications",
+      screenshot_file: "artvandelay/auth-artvandelay-settings-notifications-mobile-light-fold.png",
+      topic_family: "notifications",
+    },
+  ];
+  const selection = selectFreshScreenshotCandidates(
+    [
+      {
+        audience_scope: "recipient-shared",
+        content_key: "auth-artvandelay-conversation-thread",
+        file: "artvandelay/auth-artvandelay-conversation-thread-desktop-light-fold.png",
+        theme: "light",
+        topic_family: "conversation-thread",
+      },
+      {
+        audience_scope: "recipient-shared",
+        content_key: "auth-artvandelay-settings-notifications",
+        file: "artvandelay/auth-artvandelay-settings-notifications-mobile-light-fold.png",
+        theme: "light",
+        topic_family: "notifications",
+      },
+    ],
+    archiveHistory,
+    "2026-08-11",
+    "2026-08-11",
+  );
+
+  assert.equal(selection.expanded_rotation, true);
+  assert.deepEqual(
+    selection.candidates.map((candidate) => candidate.content_key),
+    ["auth-artvandelay-settings-notifications"],
   );
 });
 

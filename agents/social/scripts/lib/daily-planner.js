@@ -1494,7 +1494,11 @@ function filterCandidatesForArchiveHistory(candidates, archiveHistory, options =
     return !identity || !rotation.used_identities.has(identity);
   });
 
-  return (rotationCandidates.length > 0 ? rotationCandidates : normalizedCandidates)
+  const selectedCandidates = options.includeUsedIdentities
+    ? normalizedCandidates
+    : (rotationCandidates.length > 0 ? rotationCandidates : normalizedCandidates);
+
+  return selectedCandidates
     .map((candidate) => ({
       ...candidate,
       rotation_sort_key: stableHash(
@@ -1507,13 +1511,13 @@ function filterCandidatesForArchiveHistory(candidates, archiveHistory, options =
     }));
 }
 
-function filterCandidatesForWeeklyCaps(candidates, archiveHistory, plannedDate) {
+function filterCandidatesForWeeklyCaps(candidates, archiveHistory, plannedDate, options = {}) {
   const weeklyUsage = summarizeWeeklyUsage(archiveHistory, plannedDate);
   let filtered = candidates.slice();
 
   if (weeklyUsage.admin_count >= 1) {
     filtered = filtered.filter((candidate) => candidate.audience_scope !== "admin-only");
-    if (filtered.length === 0) {
+    if (filtered.length === 0 && !options.allowEmpty) {
       throw new Error(
         `No eligible non-admin screenshot candidates remain for ${plannedDate}; weekly admin-only cap for ${weeklyUsage.week} is already full.`,
       );
@@ -1522,7 +1526,7 @@ function filterCandidatesForWeeklyCaps(candidates, archiveHistory, plannedDate) 
 
   if (weeklyUsage.dark_count >= 1) {
     filtered = filtered.filter((candidate) => candidate.theme !== "dark");
-    if (filtered.length === 0) {
+    if (filtered.length === 0 && !options.allowEmpty) {
       throw new Error(
         `No eligible light-mode screenshot candidates remain for ${plannedDate}; weekly dark-mode cap for ${weeklyUsage.week} is already full.`,
       );
@@ -1556,14 +1560,14 @@ function saturatedTopicViolation(candidate, archiveHistory) {
   };
 }
 
-function filterCandidatesForSaturatedTopics(candidates, archiveHistory, plannedDate) {
+function filterCandidatesForSaturatedTopics(candidates, archiveHistory, plannedDate, options = {}) {
   const evaluated = candidates.map((candidate) => ({
     ...candidate,
     saturated_topic_violation: saturatedTopicViolation(candidate, archiveHistory),
   }));
   const allowed = evaluated.filter((candidate) => !candidate.saturated_topic_violation);
 
-  if (allowed.length === 0 && evaluated.length > 0) {
+  if (allowed.length === 0 && evaluated.length > 0 && !options.allowEmpty) {
     const topics = Array.from(new Set(
       evaluated
         .map((candidate) => candidate.saturated_topic_violation?.topic_family)
@@ -1576,6 +1580,50 @@ function filterCandidatesForSaturatedTopics(candidates, archiveHistory, plannedD
   }
 
   return allowed;
+}
+
+function selectFreshScreenshotCandidates(candidates, archiveHistory, plannedDate, archiveKey) {
+  const filterPool = (pool, options = {}) => {
+    const weekEligible = filterCandidatesForWeeklyCaps(
+      pool,
+      archiveHistory,
+      plannedDate,
+      options,
+    );
+    return filterCandidatesForSaturatedTopics(
+      weekEligible,
+      archiveHistory,
+      plannedDate,
+      options,
+    );
+  };
+  const rotatedCandidates = filterCandidatesForArchiveHistory(
+    candidates,
+    archiveHistory,
+    { currentArchiveKey: archiveKey },
+  );
+  const rotatedEligible = filterPool(rotatedCandidates, { allowEmpty: true });
+
+  if (rotatedEligible.length > 0) {
+    return {
+      candidates: rotatedEligible,
+      expanded_rotation: false,
+    };
+  }
+
+  const expandedCandidates = filterCandidatesForArchiveHistory(
+    candidates,
+    archiveHistory,
+    {
+      currentArchiveKey: archiveKey,
+      includeUsedIdentities: true,
+    },
+  );
+
+  return {
+    candidates: filterPool(expandedCandidates),
+    expanded_rotation: true,
+  };
 }
 
 function candidateCooldownViolations(candidate, archiveHistory, cooldownPolicy = DEFAULT_COOLDOWN_POLICY) {
@@ -1745,23 +1793,14 @@ function buildDailyContext(args) {
   const archiveHistory = loadArchiveHistory(args.archiveKey);
   const contentFormatSelection = chooseContentFormat(archiveHistory, args.date);
   const templateNames = listDailyTemplateNames();
-  const variedCandidates = filterCandidatesForArchiveHistory(
+  const freshCandidateSelection = selectFreshScreenshotCandidates(
     planningContext.candidate_screenshots,
     archiveHistory,
-    { currentArchiveKey: args.archiveKey },
-  );
-  const weekEligibleCandidates = filterCandidatesForWeeklyCaps(
-    variedCandidates,
-    archiveHistory,
     args.date,
-  );
-  const topicEligibleCandidates = filterCandidatesForSaturatedTopics(
-    weekEligibleCandidates,
-    archiveHistory,
-    args.date,
+    args.archiveKey,
   );
   const cooldownEligibleCandidates = filterCandidatesForCooldowns(
-    topicEligibleCandidates,
+    freshCandidateSelection.candidates,
     archiveHistory,
     cooldownPolicy,
   );
@@ -1837,6 +1876,7 @@ function buildDailyContext(args) {
     hushline_app_voice_guidance: HUSHLINE_APP_VOICE_GUIDANCE,
     recent_archive_history: archiveHistory,
     screenshot_rotation: selectedCandidate.screenshot_rotation,
+    screenshot_rotation_expanded: freshCandidateSelection.expanded_rotation,
     visual_selection_reason: cooldownFallbackCandidates.length > 0
       ? `${editorialIntentSelection.visual_selection_reason} Cooldown fallback was used because no fully fresh screenshot candidates remained.`
       : editorialIntentSelection.visual_selection_reason,
@@ -2407,6 +2447,7 @@ module.exports = {
   renderDailyPlan,
   scoreEditorialCritic,
   selectCandidateShortlist,
+  selectFreshScreenshotCandidates,
   summarizeScreenshotRotation,
   validatePlan,
 };

@@ -822,6 +822,84 @@ find_open_issue_pr_to_resume
     )
 
 
+def test_find_open_issue_pr_to_resume_retries_transient_verified_read(
+    tmp_path: Path,
+) -> None:
+    call_count_file = tmp_path / "gh-call-count.txt"
+    prs_json = json.dumps(
+        [
+            {
+                "number": 1991,
+                "title": "#1990 Embedded Hush Line profile updates",
+                "headRefName": "codex/daily-issue-1990",
+                "updatedAt": "2026-08-11T01:00:00Z",
+            }
+        ]
+    )
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+GITHUB_READ_ATTEMPTS=3
+GITHUB_READ_RETRY_DELAY_SECONDS=0
+printf '0\n' > {shlex.quote(str(call_count_file))}
+gh() {{
+  count="$(cat {shlex.quote(str(call_count_file))})"
+  count=$((count + 1))
+  printf '%s\n' "$count" > {shlex.quote(str(call_count_file))}
+  if [[ "$count" == "1" ]]; then
+    printf 'x509: certificate signed by unknown authority\n' >&2
+    return 1
+  fi
+  printf '%s\n' {shlex.quote(prs_json)}
+}}
+find_open_issue_pr_to_resume
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == (
+        "1991\t1990\tcodex/daily-issue-1990\t#1990 Embedded Hush Line profile updates\n"
+    )
+    assert call_count_file.read_text(encoding="utf-8").strip() == "2"
+    assert "verified GitHub read failed (attempt 1/3)" in result.stderr
+
+
+def test_main_fails_closed_when_restart_resume_lookup_cannot_be_verified(
+    tmp_path: Path,
+) -> None:
+    call_log = tmp_path / "calls.txt"
+    repo_dir = tmp_path / "repo"
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+REPO_DIR={shlex.quote(str(repo_dir))}
+mkdir -p "$REPO_DIR/.git"
+parse_args() {{ :; }}
+initialize_run_state() {{ :; }}
+cleanup() {{ :; }}
+acquire_runner_lock() {{ :; }}
+assert_runner_can_take_checkout() {{ :; }}
+require_cmd() {{ :; }}
+require_positive_integer() {{ :; }}
+require_non_negative_integer() {{ :; }}
+process_open_dependabot_prs() {{ return 0; }}
+resume_open_issue_pr_monitor_if_any() {{ return 2; }}
+count_open_human_prs() {{
+  printf 'human-pr-guard\n' >> {shlex.quote(str(call_log))}
+  printf '0\n'
+}}
+collect_issue_candidates() {{
+  printf 'issue-selection\n' >> {shlex.quote(str(call_log))}
+}}
+main
+"""
+
+    result = _run_bash(shell_script)
+
+    assert result.returncode == 1
+    assert "could not verify whether an open issue PR needs monitoring" in result.stdout
+    assert not call_log.exists()
+
+
 def test_main_resumes_open_issue_pr_before_selecting_new_work(tmp_path: Path) -> None:
     call_log = tmp_path / "calls.txt"
     repo_dir = tmp_path / "repo"
@@ -1027,6 +1105,7 @@ collect_issue_candidates() {{
   printf '1558\\n'
 }}
 process_open_dependabot_prs() {{ return 0; }}
+resume_open_issue_pr_monitor_if_any() {{ return 1; }}
 main
 """
 
@@ -1992,6 +2071,7 @@ count_open_bot_prs_excluding_heads() {{
   printf '1\\n'
 }}
 process_open_dependabot_prs() {{ return 0; }}
+resume_open_issue_pr_monitor_if_any() {{ return 1; }}
 main
 """
 
@@ -2129,6 +2209,7 @@ start_runtime_stack_and_seed_dev_data() {{
 kill_all_docker_containers() {{ :; }}
 kill_processes_on_ports() {{ :; }}
 process_open_dependabot_prs() {{ return 0; }}
+resume_open_issue_pr_monitor_if_any() {{ return 1; }}
 main
 """
 
@@ -3155,6 +3236,7 @@ find_open_pr_for_head_branch() {{
   fi
 }}
 configure_bot_git_identity() {{ :; }}
+resume_open_issue_pr_monitor_if_any() {{ return 1; }}
 start_runtime_stack_and_seed_dev_data() {{
   printf 'runtime-bootstrap\\n' >> {shlex.quote(str(call_log))}
   exit 0
@@ -3206,6 +3288,7 @@ set_issue_project_status() {{
   printf 'status:%s:%s\\n' "$1" "$2" >> {shlex.quote(str(call_log))}
 }}
 configure_bot_git_identity() {{ :; }}
+resume_open_issue_pr_monitor_if_any() {{ return 1; }}
 start_runtime_stack_and_seed_dev_data() {{
   printf 'runtime-bootstrap\\n' >> {shlex.quote(str(call_log))}
   exit 0
@@ -3333,6 +3416,7 @@ gh() {{
   return 0
 }}
 process_open_dependabot_prs() {{ return 0; }}
+resume_open_issue_pr_monitor_if_any() {{ return 1; }}
 main
 """
 
@@ -3515,6 +3599,7 @@ gh() {{
   return 0
 }}
 process_open_dependabot_prs() {{ return 0; }}
+resume_open_issue_pr_monitor_if_any() {{ return 1; }}
 main
 """
 
@@ -6019,6 +6104,7 @@ write_pr_body() {{
 }}
 check_pr_feedback_after_delay() {{ :; }}
 process_open_dependabot_prs() {{ return 0; }}
+resume_open_issue_pr_monitor_if_any() {{ return 1; }}
 gh() {{
   if [[ "${{1-}} ${{2-}} ${{3-}}" == "issue view 1558" ]]; then
     local last_arg="${{@: -1}}"
@@ -6160,6 +6246,7 @@ gh() {{
   return 0
 }}
 process_open_dependabot_prs() {{ return 0; }}
+resume_open_issue_pr_monitor_if_any() {{ return 1; }}
 main
 """
 
@@ -6258,6 +6345,7 @@ gh() {{
   return 0
 }}
 process_open_dependabot_prs() {{ return 0; }}
+resume_open_issue_pr_monitor_if_any() {{ return 1; }}
 main
 """
 

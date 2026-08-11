@@ -34,6 +34,10 @@ The scheduled posting agents plan and publish through one launchd job per conten
 Direct manual runs do not apply randomized timing or weekly weekday selection unless
 `HUSHLINE_SOCIAL_RANDOMIZE_POST_WINDOW=1` is set.
 
+If the unused screenshot rotation contains only a blocked weekly category or saturated
+topic, the feature planner expands across older screenshots and chooses an otherwise
+eligible topic. Topic saturation and weekly caps remain enforced during that expansion.
+
 ## Clean Run Isolation
 
 Every social runner waits for its randomized publication target before taking the
