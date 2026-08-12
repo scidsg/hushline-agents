@@ -65,6 +65,8 @@ MAX_ISSUE_ATTEMPTS="${HUSHLINE_DAILY_MAX_ISSUE_ATTEMPTS:-10}"
 MAX_FIX_ATTEMPTS="${HUSHLINE_DAILY_MAX_FIX_ATTEMPTS:-8}"
 RUNTIME_BOOTSTRAP_ATTEMPTS="${HUSHLINE_DAILY_RUNTIME_BOOTSTRAP_ATTEMPTS:-3}"
 RUNTIME_BOOTSTRAP_RETRY_DELAY_SECONDS="${HUSHLINE_DAILY_RUNTIME_BOOTSTRAP_RETRY_DELAY_SECONDS:-10}"
+GITHUB_READ_ATTEMPTS="${HUSHLINE_DAILY_GITHUB_READ_ATTEMPTS:-3}"
+GITHUB_READ_RETRY_DELAY_SECONDS="${HUSHLINE_DAILY_GITHUB_READ_RETRY_DELAY_SECONDS:-2}"
 CHECK_TIMEOUT_SECONDS="${HUSHLINE_DAILY_CHECK_TIMEOUT_SECONDS:-1800}"
 POST_PR_FEEDBACK_DELAY_SECONDS="${HUSHLINE_DAILY_POST_PR_FEEDBACK_DELAY_SECONDS:-600}"
 CODEX_STATUS_CHECK_ENABLED="${HUSHLINE_DAILY_CODEX_STATUS_CHECK_ENABLED:-1}"
@@ -1352,8 +1354,33 @@ kill_processes_on_ports() {
   done
 }
 
+run_github_read_with_retry() {
+  local attempt=1
+
+  while true; do
+    if "$@"; then
+      return 0
+    fi
+
+    if (( attempt >= GITHUB_READ_ATTEMPTS )); then
+      return 1
+    fi
+
+    printf \
+      'Warning: verified GitHub read failed (attempt %s/%s); retrying in %ss.\n' \
+      "$attempt" \
+      "$GITHUB_READ_ATTEMPTS" \
+      "$GITHUB_READ_RETRY_DELAY_SECONDS" \
+      >&2
+    if (( GITHUB_READ_RETRY_DELAY_SECONDS > 0 )); then
+      sleep "$GITHUB_READ_RETRY_DELAY_SECONDS"
+    fi
+    attempt=$((attempt + 1))
+  done
+}
+
 count_open_bot_prs() {
-  gh pr list \
+  run_github_read_with_retry gh pr list \
     --repo "$REPO_SLUG" \
     --state open \
     --author "$BOT_LOGIN" \
@@ -1367,7 +1394,7 @@ count_open_bot_prs_excluding_heads() {
   local pr_heads head allowed skip count=0
 
   if ! pr_heads="$(
-    gh pr list \
+    run_github_read_with_retry gh pr list \
       --repo "$REPO_SLUG" \
       --state open \
       --author "$BOT_LOGIN" \
@@ -1398,7 +1425,7 @@ count_open_bot_prs_excluding_heads() {
 
 find_open_pr_for_head_branch() {
   local head_branch="$1"
-  gh pr list \
+  run_github_read_with_retry gh pr list \
     --repo "$REPO_SLUG" \
     --state open \
     --head "$head_branch" \
@@ -1411,7 +1438,7 @@ find_open_issue_pr_to_resume() {
   local prs_json=""
 
   if ! prs_json="$(
-    gh pr list \
+    run_github_read_with_retry gh pr list \
       --repo "$REPO_SLUG" \
       --state open \
       --author "$BOT_LOGIN" \
@@ -1450,7 +1477,7 @@ count_open_human_prs() {
   local prs_json=""
 
   if ! prs_json="$(
-    gh pr list \
+    run_github_read_with_retry gh pr list \
       --repo "$REPO_SLUG" \
       --state open \
       --limit 200 \
@@ -1483,7 +1510,7 @@ list_open_dependabot_prs() {
   local prs_json=""
 
   if ! prs_json="$(
-    gh pr list \
+    run_github_read_with_retry gh pr list \
       --repo "$REPO_SLUG" \
       --state open \
       --limit 200 \
@@ -1543,7 +1570,7 @@ fetch_open_dependabot_alerts_json() {
   local alerts_json=""
 
   if ! alerts_json="$(
-    gh api \
+    run_github_read_with_retry gh api \
       --paginate \
       --slurp \
       "repos/${REPO_SLUG}/dependabot/alerts?state=open&per_page=100"
@@ -2279,7 +2306,7 @@ resume_open_issue_pr_monitor_if_any() {
   fi
 
   if ! resume_info="$(find_open_issue_pr_to_resume)"; then
-    return 1
+    return 2
   fi
 
   if [[ -z "$resume_info" ]]; then
@@ -5507,6 +5534,12 @@ main() {
   require_positive_integer \
     "HUSHLINE_DAILY_RUNTIME_BOOTSTRAP_RETRY_DELAY_SECONDS" \
     "$RUNTIME_BOOTSTRAP_RETRY_DELAY_SECONDS"
+  require_positive_integer \
+    "HUSHLINE_DAILY_GITHUB_READ_ATTEMPTS" \
+    "$GITHUB_READ_ATTEMPTS"
+  require_non_negative_integer \
+    "HUSHLINE_DAILY_GITHUB_READ_RETRY_DELAY_SECONDS" \
+    "$GITHUB_READ_RETRY_DELAY_SECONDS"
   require_positive_integer "HUSHLINE_DAILY_CHECK_TIMEOUT_SECONDS" "$CHECK_TIMEOUT_SECONDS"
   require_non_negative_integer \
     "HUSHLINE_DAILY_POST_PR_FEEDBACK_DELAY_SECONDS" \
@@ -5539,8 +5572,14 @@ main() {
     exit 0
   fi
 
-  if resume_open_issue_pr_monitor_if_any; then
+  RESUME_OPEN_PR_STATUS=0
+  resume_open_issue_pr_monitor_if_any || RESUME_OPEN_PR_STATUS=$?
+  if (( RESUME_OPEN_PR_STATUS == 0 )); then
     exit 0
+  fi
+  if (( RESUME_OPEN_PR_STATUS != 1 )); then
+    runner_status "Blocked: could not verify whether an open issue PR needs monitoring; refusing to select new work."
+    exit 1
   fi
 
   ISSUE_NUMBER=""

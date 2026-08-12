@@ -31,6 +31,7 @@ line-length = 100
 indent-width = 4
 
 [tool.ruff.lint]
+external = ["PLR0917"]
 select = [
     "E",
     "F",
