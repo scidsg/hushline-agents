@@ -48,10 +48,19 @@ after reboot rather than as a system daemon before login.
 Script: `agents/product/code/scripts/mail_command_agent.py`
 
 The optional mail command agent polls the native macOS Mail app every five minutes. It
-considers only new messages whose visible and parsed `From` address is exactly
-`glenn@hushline.app`, whose `To` header includes `agent@hushline.app`, and whose first
-`Authentication-Results` header records aligned DKIM and DMARC passes for
-`hushline.app`. A matching address without those authentication results is rejected and
+accepts two narrowly scoped command sources:
+
+- New Inbox messages whose visible and parsed `From` address is exactly
+  `glenn@hushline.app`, whose `To` header includes `agent@hushline.app`, and whose first
+  `Authentication-Results` header records aligned DKIM and DMARC passes for
+  `hushline.app`.
+- New messages in the `Sent` mailbox of the Mail account that owns
+  `agent@hushline.app`, with the same exact parsed `From` and `To` requirements. This is
+  the same-account Proton path: a message sent between two addresses in one Proton
+  mailbox can appear only in Sent and does not receive external-delivery DKIM or DMARC
+  headers. No other local mailbox is trusted for this exception.
+
+A matching Inbox address without the required authentication results is rejected and
 never passed to Codex. Attachments are not passed to Codex.
 
 For each authenticated message, the runner passes the subject and Mail.app plain-text
@@ -78,9 +87,11 @@ Install or refresh the logged-in user's LaunchAgent:
 Installation verifies that Mail.app can send from `agent@hushline.app`, verifies Codex
 authentication, copies the executable to a private application-support directory,
 initializes the cursor at the current time, and loads the job. Existing email is therefore
-never interpreted as a new command. Reinstalling preserves an existing cursor so mail that
-arrived since the prior poll is not skipped. The Aqua user session is required because the
-runner uses Mail.app automation.
+never interpreted as a new command. When an existing installation first gains Sent-mailbox
+support, the runner establishes a separate Sent cursor before scanning it, so historical
+sent messages are not executed. Reinstalling preserves existing cursors so mail that arrived
+since the prior poll is not skipped. The Aqua user session is required because the runner
+uses Mail.app automation.
 
 Operational checks:
 

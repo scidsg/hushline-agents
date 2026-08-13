@@ -81,6 +81,32 @@ def test_rejects_visible_sender_without_dkim_and_dmarc() -> None:
     assert runner.validate_headers(headers) == (False, "authentication_failed")
 
 
+def test_accepts_exact_same_account_command_from_trusted_sent_mailbox() -> None:
+    runner = load_runner()
+    headers = valid_headers()
+    del headers["Authentication-Results"]
+
+    assert runner.validate_candidate_headers(headers, "sent") == (True, "trusted_sent_copy")
+
+
+def test_sent_mailbox_still_requires_exact_sender_and_recipient() -> None:
+    runner = load_runner()
+    headers = valid_headers()
+    headers.replace_header("From", "Attacker <attacker@example.com>")
+    del headers["Authentication-Results"]
+
+    assert runner.validate_candidate_headers(headers, "sent") == (False, "from_mismatch")
+
+
+def test_rejects_untrusted_mailbox_source() -> None:
+    runner = load_runner()
+
+    assert runner.validate_candidate_headers(valid_headers(), "archive") == (
+        False,
+        "invalid_mailbox_source",
+    )
+
+
 def test_uses_only_first_authentication_results_header() -> None:
     runner = load_runner()
     headers = valid_headers()
@@ -103,6 +129,24 @@ def test_prompt_preserves_task_and_repository_authority(tmp_path: Path) -> None:
     assert "Follow all\nAGENTS.md instructions" in prompt
     assert "Do not send email\nyourself" in prompt
     assert "aligned DKIM and DMARC passed" in prompt
+
+
+def test_sent_command_prompt_describes_local_mailbox_trust(tmp_path: Path) -> None:
+    runner = load_runner()
+    task = candidate(runner)
+    task = runner.CandidateMessage(
+        internal_id=task.internal_id,
+        message_id=task.message_id,
+        subject=task.subject,
+        body=task.body,
+        headers=task.headers,
+        mailbox_source="sent",
+    )
+
+    prompt = runner.build_prompt(task, [tmp_path])
+
+    assert "agent account's Sent mailbox" in prompt
+    assert "do not receive external-delivery authentication headers" in prompt
 
 
 def test_codex_command_uses_approved_model_and_bounded_sandbox(
@@ -270,6 +314,38 @@ def test_reinstall_preserves_existing_cursor(
     assert result == 0
     state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
     assert state["scan_since"] == 12345
+
+
+def test_existing_install_baselines_sent_mailbox_before_scanning(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    runner = load_runner()
+    monkeypatch.setenv(runner.STATE_DIR_ENV, str(tmp_path))
+    runner.save_state(tmp_path / "state.json", runner.initial_state(100))
+    monkeypatch.setattr(runner, "now_epoch", lambda: 200)
+    scans: list[tuple[int, int | None]] = []
+
+    def record_scan(inbox: int, sent: int | None) -> list[Any]:
+        scans.append((inbox, sent))
+        return []
+
+    monkeypatch.setattr(runner, "fetch_candidates", record_scan)
+    monkeypatch.setattr(runner, "default_workspace_dirs", lambda: [tmp_path])
+
+    result = runner.run(runner.parse_args([]))
+
+    assert result == 0
+    assert scans == [(700, None)]
+    state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+    assert state["sent_scan_since"] == 200
+
+
+def test_mail_export_limits_sent_commands_to_agent_account() -> None:
+    runner = load_runner()
+
+    assert "if accountAddresses contains targetRecipient then" in runner.MAIL_EXPORT_APPLESCRIPT
+    assert 'set sentMailbox to mailbox "Sent" of mailAccount' in runner.MAIL_EXPORT_APPLESCRIPT
+    assert 'set end of exportedIds to "sent" & tab & internalId' in runner.MAIL_EXPORT_APPLESCRIPT
 
 
 def test_launchd_template_checks_every_five_minutes() -> None:

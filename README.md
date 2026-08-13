@@ -54,10 +54,12 @@ make test
 - Runtime logs are stored under `logs/` and ignored by Git.
 - The weekly brief runner requires `HUSHLINE_WEEKLY_AGENT_REPORT_FROM` and
   `HUSHLINE_WEEKLY_AGENT_REPORT_TO`.
-- The local mail command agent accepts only aligned DKIM- and DMARC-authenticated mail
-  from `glenn@hushline.app` addressed to `agent@hushline.app`, then replies only from
-  the agent address to Glenn. Its five-minute GUI LaunchAgent is installed explicitly;
-  existing messages are baselined and never executed during installation.
+- The local mail command agent accepts aligned DKIM- and DMARC-authenticated Inbox mail
+  from `glenn@hushline.app` addressed to `agent@hushline.app`. It also accepts the exact
+  same identities from the agent account's Sent mailbox for same-account Proton delivery;
+  no other mailbox receives that local exception. It replies only from the agent address
+  to Glenn. Its five-minute GUI LaunchAgent is installed explicitly, and separate Inbox
+  and Sent cursors prevent historical messages from being executed.
 - The sales contact agent refuses to send unless `HUSHLINE_SALES_AGENT_FROM` is
   exactly `sales@hushline.app`.
 - Agent-authored product changes always require human review.
