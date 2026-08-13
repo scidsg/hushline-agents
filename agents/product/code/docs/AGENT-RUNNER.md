@@ -96,7 +96,9 @@ The default writable repository set is `hushline`, `hushline-agents`, `hushline-
 `hushline-finance`, `hushline-social`, and `hushline-quotes` when those sibling checkouts
 exist. Override the colon-separated list with
 `HUSHLINE_MAIL_COMMAND_AGENT_WORKSPACE_DIRS` when installing. Override the Codex profile
-directory with `HUSHLINE_MAIL_COMMAND_AGENT_CODEX_HOME`.
+directory with `HUSHLINE_MAIL_COMMAND_AGENT_CODEX_HOME`. A deployment from an isolated
+worktree can keep logs in the durable checkout by setting
+`HUSHLINE_MAIL_COMMAND_AGENT_LOG_DIR="$HOME/hushline-agents/logs/mail-command-agent"`.
 
 ## Code Agent
 
