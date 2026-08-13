@@ -564,6 +564,7 @@ def process_candidate(  # noqa: PLR0913 - explicit dependencies keep the mail bo
     state: dict[str, Any],
     path: Path,
     state_dir: Path,
+    *,
     workspace_dirs: list[Path],
     dry_run: bool,
 ) -> str:
@@ -718,8 +719,8 @@ def run(args: argparse.Namespace) -> int:
                 state,
                 path,
                 state_dir,
-                workspace_dirs,
-                args.dry_run,
+                workspace_dirs=workspace_dirs,
+                dry_run=args.dry_run,
             )
             for message in candidates
         ]

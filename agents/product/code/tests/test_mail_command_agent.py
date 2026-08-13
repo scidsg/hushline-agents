@@ -145,10 +145,10 @@ def test_process_candidate_runs_once_and_replies(
     monkeypatch.setattr(runner, "send_reply", lambda subject, body: sent.append((subject, body)))
 
     first = runner.process_candidate(
-        candidate(runner), state, path, tmp_path, [tmp_path], dry_run=False
+        candidate(runner), state, path, tmp_path, workspace_dirs=[tmp_path], dry_run=False
     )
     second = runner.process_candidate(
-        candidate(runner), state, path, tmp_path, [tmp_path], dry_run=False
+        candidate(runner), state, path, tmp_path, workspace_dirs=[tmp_path], dry_run=False
     )
 
     assert first == "completed"
@@ -171,10 +171,10 @@ def test_failed_codex_run_is_not_retried(monkeypatch: pytest.MonkeyPatch, tmp_pa
     monkeypatch.setattr(runner, "send_reply", lambda _subject, body: sent.append(body))
 
     first = runner.process_candidate(
-        candidate(runner), state, path, tmp_path, [tmp_path], dry_run=False
+        candidate(runner), state, path, tmp_path, workspace_dirs=[tmp_path], dry_run=False
     )
     second = runner.process_candidate(
-        candidate(runner), state, path, tmp_path, [tmp_path], dry_run=False
+        candidate(runner), state, path, tmp_path, workspace_dirs=[tmp_path], dry_run=False
     )
 
     assert first == "blocked"
@@ -197,7 +197,14 @@ def test_dry_run_never_delivers_a_pending_reply(
         lambda *_args: pytest.fail("A dry run must not send mail"),
     )
 
-    result = runner.process_candidate(task, state, path, tmp_path, [tmp_path], dry_run=True)
+    result = runner.process_candidate(
+        task,
+        state,
+        path,
+        tmp_path,
+        workspace_dirs=[tmp_path],
+        dry_run=True,
+    )
 
     assert result == "skipped"
 
@@ -221,7 +228,14 @@ def test_pending_reply_is_retried_without_rerunning_codex(
     )
     monkeypatch.setattr(runner, "send_reply", lambda _subject, body: sent.append(body))
 
-    result = runner.process_candidate(task, state, path, tmp_path, [tmp_path], dry_run=False)
+    result = runner.process_candidate(
+        task,
+        state,
+        path,
+        tmp_path,
+        workspace_dirs=[tmp_path],
+        dry_run=False,
+    )
 
     assert result == "completed"
     assert sent == ["Done."]
