@@ -53,13 +53,14 @@ end writeUtf8
 on run argv
   set allowedSender to item 1 of argv
   set targetRecipient to item 2 of argv
-  set lookbackSeconds to (item 3 of argv) as integer
-  set exportDirectory to item 4 of argv
-  set cutoffDate to (current date) - lookbackSeconds
+  set inboxLookbackSeconds to (item 3 of argv) as integer
+  set sentLookbackSeconds to (item 4 of argv) as integer
+  set exportDirectory to item 5 of argv
+  set inboxCutoffDate to (current date) - inboxLookbackSeconds
   set exportedIds to {}
 
   tell application "Mail"
-    set recentMessages to every message of inbox whose date received is greater than cutoffDate
+    set recentMessages to every message of inbox whose date received is greater than inboxCutoffDate
     repeat with mailMessage in recentMessages
       set senderText to ""
       try
@@ -82,6 +83,7 @@ on run argv
 
       if senderMatched and recipientMatched then
         set internalId to id of mailMessage as text
+        set exportId to "inbox-" & internalId
         set rawSource to source of mailMessage as text
         set headerText to rawSource
         set headerDivider to return & linefeed & return & linefeed
@@ -93,11 +95,63 @@ on run argv
         try
           set bodyText to content of mailMessage as text
         end try
-        my writeUtf8(headerText, exportDirectory & "/" & internalId & ".headers")
-        my writeUtf8(bodyText, exportDirectory & "/" & internalId & ".body")
-        set end of exportedIds to internalId
+        my writeUtf8(headerText, exportDirectory & "/" & exportId & ".headers")
+        my writeUtf8(bodyText, exportDirectory & "/" & exportId & ".body")
+        set end of exportedIds to "inbox" & tab & internalId
       end if
     end repeat
+
+    if sentLookbackSeconds is greater than 0 then
+      set sentCutoffDate to (current date) - sentLookbackSeconds
+      repeat with mailAccount in every account
+        set accountAddresses to email addresses of mailAccount
+        if accountAddresses contains targetRecipient then
+          try
+            set sentMailbox to mailbox "Sent" of mailAccount
+            set recentSentMessages to every message of sentMailbox whose date sent > sentCutoffDate
+            repeat with mailMessage in recentSentMessages
+              set senderText to ""
+              try
+                set senderText to sender of mailMessage as text
+              end try
+              set recipientMatched to false
+              try
+                repeat with recipientRecord in to recipients of mailMessage
+                  set recipientAddress to address of recipientRecord as text
+                  ignoring case
+                    if recipientAddress is targetRecipient then set recipientMatched to true
+                  end ignoring
+                end repeat
+              end try
+
+              set senderMatched to false
+              ignoring case
+                if senderText contains allowedSender then set senderMatched to true
+              end ignoring
+
+              if senderMatched and recipientMatched then
+                set internalId to id of mailMessage as text
+                set exportId to "sent-" & internalId
+                set rawSource to source of mailMessage as text
+                set headerText to rawSource
+                set headerDivider to return & linefeed & return & linefeed
+                set dividerOffset to offset of headerDivider in rawSource
+                if dividerOffset is greater than 0 then
+                  set headerText to text 1 thru (dividerOffset + 3) of rawSource
+                end if
+                set bodyText to ""
+                try
+                  set bodyText to content of mailMessage as text
+                end try
+                my writeUtf8(headerText, exportDirectory & "/" & exportId & ".headers")
+                my writeUtf8(bodyText, exportDirectory & "/" & exportId & ".body")
+                set end of exportedIds to "sent" & tab & internalId
+              end if
+            end repeat
+          end try
+        end if
+      end repeat
+    end if
   end tell
 
   set priorDelimiters to AppleScript's text item delimiters
@@ -170,6 +224,7 @@ class CandidateMessage:
     subject: str
     body: str
     headers: EmailMessage
+    mailbox_source: str = "inbox"
 
     @property
     def state_key(self) -> str:
@@ -309,6 +364,10 @@ def authentication_result_is_valid(headers: EmailMessage) -> bool:
 
 
 def validate_headers(headers: EmailMessage) -> tuple[bool, str]:
+    return validate_candidate_headers(headers, "inbox")
+
+
+def validate_candidate_headers(headers: EmailMessage, mailbox_source: str) -> tuple[bool, str]:
     from_addresses = message_addresses(headers, "From")
     if from_addresses != [AUTHORIZED_SENDER]:
         return False, "from_mismatch"
@@ -318,14 +377,19 @@ def validate_headers(headers: EmailMessage) -> tuple[bool, str]:
     message_id = str(headers.get("Message-ID", "")).strip()
     if not message_id:
         return False, "missing_message_id"
+    if mailbox_source == "sent":
+        return True, "trusted_sent_copy"
+    if mailbox_source != "inbox":
+        return False, "invalid_mailbox_source"
     if not authentication_result_is_valid(headers):
         return False, "authentication_failed"
     return True, "authenticated"
 
 
-def parse_candidate(export_dir: Path, internal_id: str) -> CandidateMessage:
-    header_path = export_dir / f"{internal_id}.headers"
-    body_path = export_dir / f"{internal_id}.body"
+def parse_candidate(export_dir: Path, mailbox_source: str, internal_id: str) -> CandidateMessage:
+    export_id = f"{mailbox_source}-{internal_id}"
+    header_path = export_dir / f"{export_id}.headers"
+    body_path = export_dir / f"{export_id}.body"
     try:
         parsed = BytesParser(policy=policy.default).parsebytes(header_path.read_bytes())
         body = body_path.read_text(encoding="utf-8", errors="replace")
@@ -343,11 +407,19 @@ def parse_candidate(export_dir: Path, internal_id: str) -> CandidateMessage:
         subject=subject,
         body=body[:MAX_BODY_CHARACTERS],
         headers=parsed,
+        mailbox_source=mailbox_source,
     )
 
 
-def fetch_candidates(lookback_seconds: int) -> list[CandidateMessage]:
-    bounded_lookback = max(1, min(lookback_seconds, MAX_LOOKBACK_SECONDS))
+def fetch_candidates(
+    inbox_lookback_seconds: int, sent_lookback_seconds: int | None
+) -> list[CandidateMessage]:
+    bounded_inbox_lookback = max(1, min(inbox_lookback_seconds, MAX_LOOKBACK_SECONDS))
+    bounded_sent_lookback = (
+        0
+        if sent_lookback_seconds is None
+        else max(1, min(sent_lookback_seconds, MAX_LOOKBACK_SECONDS))
+    )
     with tempfile.TemporaryDirectory(prefix="hushline-mail-agent-") as temp_dir_name:
         export_dir = Path(temp_dir_name)
         result = subprocess.run(  # noqa: S603 - fixed executable and data-only arguments.
@@ -356,7 +428,8 @@ def fetch_candidates(lookback_seconds: int) -> list[CandidateMessage]:
                 "-",
                 AUTHORIZED_SENDER,
                 AGENT_ADDRESS,
-                str(bounded_lookback),
+                str(bounded_inbox_lookback),
+                str(bounded_sent_lookback),
                 str(export_dir),
             ],
             input=MAIL_EXPORT_APPLESCRIPT,
@@ -368,20 +441,38 @@ def fetch_candidates(lookback_seconds: int) -> list[CandidateMessage]:
         if result.returncode != 0:
             detail = (result.stderr or result.stdout).strip() or "no Mail.app output"
             raise MailCommandAgentError(f"Mail.app scan failed: {detail}")
-        internal_ids = [value.strip() for value in result.stdout.splitlines() if value.strip()]
-        candidates = [parse_candidate(export_dir, internal_id) for internal_id in internal_ids]
+        exported_messages = [
+            value.strip().partition("\t") for value in result.stdout.splitlines() if value.strip()
+        ]
+        if any(
+            not separator or mailbox_source not in {"inbox", "sent"}
+            for mailbox_source, separator, _internal_id in exported_messages
+        ):
+            raise MailCommandAgentError("Mail.app returned an invalid candidate identifier.")
+        candidates = [
+            parse_candidate(export_dir, mailbox_source, internal_id)
+            for mailbox_source, _separator, internal_id in exported_messages
+        ]
     candidates.reverse()
     return candidates
 
 
 def build_prompt(message: CandidateMessage, workspace_dirs: list[Path]) -> str:
     workspace_lines = "\n".join(f"- {path}" for path in workspace_dirs)
+    authentication_summary = (
+        "aligned DKIM and DMARC passed for hushline.app"
+        if message.mailbox_source == "inbox"
+        else (
+            "exact From and To identities matched in the agent account's Sent mailbox; "
+            "same-account Proton messages do not receive external-delivery authentication headers"
+        )
+    )
     return f"""You are Hush Line's local Mail command agent.
 
 The wrapper authenticated this message as:
 - From: {AUTHORIZED_SENDER}
 - To: {AGENT_ADDRESS}
-- Authentication: aligned DKIM and DMARC passed for hushline.app
+- Authentication: {authentication_summary}
 
 Glenn has authorized you to act on the task stated in the subject and body below. Follow all
 AGENTS.md instructions in every repository you touch. Those repository policies remain
@@ -568,7 +659,7 @@ def process_candidate(  # noqa: PLR0913 - explicit dependencies keep the mail bo
     workspace_dirs: list[Path],
     dry_run: bool,
 ) -> str:
-    valid, reason = validate_headers(message.headers)
+    valid, reason = validate_candidate_headers(message.headers, message.mailbox_source)
     key = message.state_key
     short_key = key[:12]
     if not valid:
@@ -710,8 +801,14 @@ def run(args: argparse.Namespace) -> int:
 
         scan_started_at = timestamp
         scan_since = int(state.get("scan_since", scan_started_at))
-        lookback_seconds = scan_started_at - scan_since + DEFAULT_POLL_OVERLAP_SECONDS
-        candidates = fetch_candidates(lookback_seconds)
+        inbox_lookback_seconds = scan_started_at - scan_since + DEFAULT_POLL_OVERLAP_SECONDS
+        sent_scan_since = state.get("sent_scan_since")
+        sent_lookback_seconds = (
+            None
+            if sent_scan_since is None
+            else scan_started_at - int(sent_scan_since) + DEFAULT_POLL_OVERLAP_SECONDS
+        )
+        candidates = fetch_candidates(inbox_lookback_seconds, sent_lookback_seconds)
         workspace_dirs = default_workspace_dirs()
         results = [
             process_candidate(
@@ -726,7 +823,10 @@ def run(args: argparse.Namespace) -> int:
         ]
         if not args.dry_run:
             state["scan_since"] = scan_started_at
+            state["sent_scan_since"] = scan_started_at
             save_state(path, state)
+            if sent_scan_since is None:
+                print("Initialized Sent mailbox cursor; existing sent messages were not processed.")
         eligible = sum(result not in {"rejected", "skipped"} for result in results)
         print(f"Mail command scan complete: candidates={len(candidates)} actionable={eligible}.")
         return 0
