@@ -2,7 +2,6 @@
 
 const fs = require("fs");
 const path = require("path");
-const puppeteer = require("puppeteer-core");
 const { pathToFileURL } = require("url");
 const {
   AGENT_ROOT,
@@ -198,6 +197,7 @@ function renderHtml(templatePath, post, screenshotFilename, logoFilename) {
 }
 
 async function renderPng(htmlPath, outputPath) {
+  const { default: puppeteer } = await import("puppeteer-core");
   const browser = await puppeteer.launch({
     executablePath: findChrome(),
     headless: true,
@@ -210,10 +210,8 @@ async function renderPng(htmlPath, outputPath) {
       "--allow-file-access-from-files",
       "--disable-background-networking",
       "--disable-gpu",
-      "--disable-setuid-sandbox",
       "--hide-scrollbars",
       "--no-first-run",
-      "--no-sandbox",
     ],
   });
 
