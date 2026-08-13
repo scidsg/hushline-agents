@@ -13,8 +13,9 @@ in their owning repositories.
 
 - `agents/`: all agent roles, operating instructions, scripts, tests, docs, and deploy
   templates owned by this repository.
-- `agents/product/code/`: Hush Line issue runner, bootstrap helper, log sanitizer,
-  runner dashboard, code-agent policy, operations docs, and tests.
+- `agents/product/code/`: Hush Line issue runner, authenticated Mail command agent,
+  bootstrap helper, log sanitizer, runner dashboard, code-agent policy, operations docs,
+  and tests.
 - `agents/product/reporting/`: weekly local runner reporting script and tests.
 - `agents/social/`: social agent package, launchd wrappers, Node planners/publishers,
   templates, assets, docs, tests, and LaunchAgent/LaunchDaemon templates.
@@ -53,6 +54,10 @@ make test
 - Runtime logs are stored under `logs/` and ignored by Git.
 - The weekly brief runner requires `HUSHLINE_WEEKLY_AGENT_REPORT_FROM` and
   `HUSHLINE_WEEKLY_AGENT_REPORT_TO`.
+- The local mail command agent accepts only aligned DKIM- and DMARC-authenticated mail
+  from `glenn@hushline.app` addressed to `agent@hushline.app`, then replies only from
+  the agent address to Glenn. Its five-minute GUI LaunchAgent is installed explicitly;
+  existing messages are baselined and never executed during installation.
 - The sales contact agent refuses to send unless `HUSHLINE_SALES_AGENT_FROM` is
   exactly `sales@hushline.app`.
 - Agent-authored product changes always require human review.
