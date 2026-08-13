@@ -8,8 +8,8 @@ and plausible deniability.
 ## Scoped Agents
 
 - Code Agent: `agents/product/code/`
-  - Owns the GitHub issue implementation runner, local bootstrap helper, run-log
-    sanitizer, code-agent policy, operational docs, and tests.
+  - Owns the GitHub issue implementation runner, authenticated local Mail command bridge,
+    local bootstrap helper, run-log sanitizer, code-agent policy, operational docs, and tests.
   - May prepare product PRs in `scidsg/hushline`, but product changes require human
     review and protected checks before merge.
 - Reporting Agent: `agents/product/reporting/`

@@ -7,6 +7,7 @@ This document tracks the current state of the repo-managed agent automation used
 | Script                                                | Role                           | Current State                                                 | PR / Output Surface                                               |
 | ----------------------------------------------------- | ------------------------------ | ------------------------------------------------------------- | ----------------------------------------------------------------- |
 | `agents/product/code/scripts/code_agent.sh`            | GitHub issue implementation    | Paused on this host; configured for 10-minute launchd cadence | issue-specific branches and PRs                                   |
+| `agents/product/code/scripts/mail_command_agent.py`     | Authenticated Mail-to-Codex requests | Optional GUI LaunchAgent; five-minute polling | `glenn@hushline.app` to `agent@hushline.app`; private local state |
 | `agents/product/reporting/scripts/weekly_hushline_code_agent_report_runner.py` | Weekly local agent reporting   | Active, local Mail.app delivery and local report persistence  | configured email recipient; local `logs/weekly-agent-reports/`    |
 | `agents/sales/scripts/sales_contact_agent.py` | Daily sales outreach from contact-form audit | Active when installed; Mail.app delivery gated by recipient-local 04:00-09:00 window | `sales@hushline.app`; local `logs/sales/` state and drafts |
 | `agents/product/code/scripts/agent_issue_bootstrap.sh` | Local runtime/bootstrap helper | Active, manual helper used by issue and local workflows       | local Docker/bootstrap only                                       |
@@ -26,6 +27,7 @@ files are added under an explicit agent scope.
 | com.hushline.weekly-agent-report                  | Weekly local agent report            | Sunday at 10:30 PM                        | com.hushline.weekly-agent-report.plist                  |
 | com.hushline.social.hushline-verified-user-post-agent | Verified-user callout post       | Random weekday Mon-Fri, random publish target 4-9 AM | com.hushline.social.hushline-verified-user-post-agent.plist |
 | com.hushline.runner-dashboard                     | Local runner dashboard               | RunAtLoad in Aqua user session            | com.hushline.runner-dashboard.plist                     |
+| com.hushline.mail-command-agent                   | Authenticated Mail-to-Codex requests | Every 5 minutes                            | com.hushline.mail-command-agent.plist                   |
 
 ## Runner Dashboard
 
@@ -40,6 +42,63 @@ Install or refresh the GUI LaunchAgent with:
 The dashboard is installed in `~/Library/LaunchAgents/com.hushline.runner-dashboard.plist`.
 Because it controls Terminal through AppleScript, it runs in the logged-in Aqua user session
 after reboot rather than as a system daemon before login.
+
+## Mail Command Agent
+
+Script: `agents/product/code/scripts/mail_command_agent.py`
+
+The optional mail command agent polls the native macOS Mail app every five minutes. It
+considers only new messages whose visible and parsed `From` address is exactly
+`glenn@hushline.app`, whose `To` header includes `agent@hushline.app`, and whose first
+`Authentication-Results` header records aligned DKIM and DMARC passes for
+`hushline.app`. A matching address without those authentication results is rejected and
+never passed to Codex. Attachments are not passed to Codex.
+
+For each authenticated message, the runner passes the subject and Mail.app plain-text
+body to a fresh, ephemeral `codex exec` invocation using `gpt-5.6-sol` at high reasoning.
+Codex runs in the `workspace-write` sandbox with automatic approval review; the configured
+repository directories are the only additional writable roots. Repository `AGENTS.md`
+files remain authoritative. Codex can complete a clear request, ask a concise clarifying
+question, or report that it is blocked. The wrapper sends the final response from
+`agent@hushline.app` only to `glenn@hushline.app`; the model is instructed not to send
+mail itself.
+
+The local state file stores only a SHA-256 digest of each processed `Message-ID`, status,
+timestamps, and a non-sensitive result label. Subjects and bodies are not logged. The
+state prevents duplicate actions across overlapping polls. A failed Codex task is not
+automatically rerun because it may have partially changed local or remote state; the
+runner emails that failure and requires Glenn to inspect the logs before resending.
+
+Install or refresh the logged-in user's LaunchAgent:
+
+```bash
+./agents/product/code/scripts/install_mail_command_agent_launch_agent.sh
+```
+
+Installation verifies that Mail.app can send from `agent@hushline.app`, verifies Codex
+authentication, copies the executable to a private application-support directory,
+initializes the cursor at the current time, and loads the job. Existing email is therefore
+never interpreted as a new command. Reinstalling preserves an existing cursor so mail that
+arrived since the prior poll is not skipped. The Aqua user session is required because the
+runner uses Mail.app automation.
+
+Operational checks:
+
+```bash
+"$HOME/Library/Application Support/Hush Line Agents/bin/mail_command_agent.py" --diagnose
+"$HOME/Library/Application Support/Hush Line Agents/bin/mail_command_agent.py" --dry-run
+launchctl print "gui/$(id -u)/com.hushline.mail-command-agent"
+tail -F "$HOME/hushline-agents/logs/mail-command-agent/mail-command-agent.stdout.log" \
+  "$HOME/hushline-agents/logs/mail-command-agent/mail-command-agent.stderr.log"
+```
+
+The default writable repository set is `hushline`, `hushline-agents`, `hushline-docs`,
+`hushline-finance`, `hushline-social`, and `hushline-quotes` when those sibling checkouts
+exist. Override the colon-separated list with
+`HUSHLINE_MAIL_COMMAND_AGENT_WORKSPACE_DIRS` when installing. Override the Codex profile
+directory with `HUSHLINE_MAIL_COMMAND_AGENT_CODEX_HOME`. A deployment from an isolated
+worktree can keep logs in the durable checkout by setting
+`HUSHLINE_MAIL_COMMAND_AGENT_LOG_DIR="$HOME/hushline-agents/logs/mail-command-agent"`.
 
 ## Code Agent
 

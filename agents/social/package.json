@@ -18,7 +18,7 @@
     "validate:plan": "node scripts/validate-day-plan.js"
   },
   "dependencies": {
-    "puppeteer-core": "^24.39.1",
+    "puppeteer-core": "^25.7.0",
     "qrcode": "^1.5.4"
   }
 }

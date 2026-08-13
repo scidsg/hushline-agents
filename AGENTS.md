@@ -7,8 +7,8 @@ agents own. All agent-related files belong under `agents/`.
 
 - `agents/AGENTS.md`: shared instructions for every agent scope.
 - `agents/product/`: product-facing agents and automation.
-- `agents/product/code/`: issue implementation runner, bootstrap helper, log sanitizer,
-  code-agent docs, and tests.
+- `agents/product/code/`: issue implementation runner, authenticated Mail command agent,
+  bootstrap helper, log sanitizer, code-agent docs, and tests.
 - `agents/social/`: social agent package, launchd wrappers, Node planners/publishers,
   templates, assets, deploy templates, docs, and tests.
 - `agents/product/reporting/`: weekly local runner reporting.
