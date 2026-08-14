@@ -166,8 +166,8 @@ def test_codex_command_uses_approved_model_and_bounded_sandbox(
 
     assert command[:4] == ["/usr/local/bin/codex", "exec", "--model", "gpt-5.6-sol"]
     assert 'model_reasoning_effort="high"' in command
-    assert command[command.index("--sandbox") + 1] == "workspace-write"
     assert "--approve-for-me" in command
+    assert "--sandbox" not in command
     assert "--ephemeral" in command
     assert "--dangerously-bypass-approvals-and-sandbox" not in command
     assert command[command.index("--cd") + 1] == str(primary.resolve())
