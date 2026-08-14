@@ -525,8 +525,8 @@ def codex_command(workspace_dirs: list[Path], schema_path: Path, output_path: Pa
         CODEX_MODEL,
         "-c",
         f'model_reasoning_effort="{CODEX_REASONING_EFFORT}"',
-        "--sandbox",
-        "workspace-write",
+        # Automatic approval review already selects the workspace-write sandbox. Codex CLI
+        # rejects an explicit --sandbox flag when --approve-for-me is present.
         "--approve-for-me",
         "--ephemeral",
         "--cd",
