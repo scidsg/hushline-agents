@@ -59,7 +59,7 @@ make test
   same identities from the agent account's All Mail mailbox for same-account Proton delivery
   only when Proton supplies one unambiguous internal-origin marker;
   no other mailbox receives that local exception. It replies only from the agent address
-  to Glenn. Its five-minute GUI LaunchAgent is installed explicitly, and separate Inbox
+  to Glenn. Its one-minute GUI LaunchAgent is installed explicitly, and separate Inbox
   and All Mail cursors prevent historical messages from being executed.
 - The sales contact agent refuses to send unless `HUSHLINE_SALES_AGENT_FROM` is
   exactly `sales@hushline.app`.

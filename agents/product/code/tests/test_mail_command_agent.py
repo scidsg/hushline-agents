@@ -398,10 +398,10 @@ def test_mail_export_limits_all_mail_commands_to_agent_account() -> None:
     )
 
 
-def test_launchd_template_checks_every_five_minutes() -> None:
+def test_launchd_template_checks_every_minute() -> None:
     plist = PLIST_PATH.read_text(encoding="utf-8")
 
-    assert "<integer>300</integer>" in plist
+    assert "<integer>60</integer>" in plist
     assert "com.hushline.mail-command-agent" in plist
     assert "mail_command_agent.py" in plist
 

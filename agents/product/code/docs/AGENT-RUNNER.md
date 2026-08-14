@@ -27,7 +27,7 @@ files are added under an explicit agent scope.
 | com.hushline.weekly-agent-report                  | Weekly local agent report            | Sunday at 10:30 PM                        | com.hushline.weekly-agent-report.plist                  |
 | com.hushline.social.hushline-verified-user-post-agent | Verified-user callout post       | Random weekday Mon-Fri, random publish target 4-9 AM | com.hushline.social.hushline-verified-user-post-agent.plist |
 | com.hushline.runner-dashboard                     | Local runner dashboard               | RunAtLoad in Aqua user session            | com.hushline.runner-dashboard.plist                     |
-| com.hushline.mail-command-agent                   | Authenticated Mail-to-Codex requests | Every 5 minutes                            | com.hushline.mail-command-agent.plist                   |
+| com.hushline.mail-command-agent                   | Authenticated Mail-to-Codex requests | Every minute                               | com.hushline.mail-command-agent.plist                   |
 
 ## Runner Dashboard
 
@@ -47,7 +47,7 @@ after reboot rather than as a system daemon before login.
 
 Script: `agents/product/code/scripts/mail_command_agent.py`
 
-The optional mail command agent polls the native macOS Mail app every five minutes. It
+The optional mail command agent polls the native macOS Mail app every minute. It
 accepts two narrowly scoped command sources:
 
 - New Inbox messages whose visible and parsed `From` address is exactly
