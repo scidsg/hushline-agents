@@ -54,11 +54,12 @@ accepts two narrowly scoped command sources:
   `glenn@hushline.app`, whose `To` header includes `agent@hushline.app`, and whose first
   `Authentication-Results` header records aligned DKIM and DMARC passes for
   `hushline.app`.
-- New messages in the `Sent` mailbox of the Mail account that owns
+- New messages in the `All Mail` mailbox of the Mail account that owns
   `agent@hushline.app`, with the same exact parsed `From` and `To` requirements. This is
   the same-account Proton path: a message sent between two addresses in one Proton
-  mailbox can appear only in Sent and does not receive external-delivery DKIM or DMARC
-  headers. No other local mailbox is trusted for this exception.
+  mailbox can appear only in All Mail and may not receive external-delivery DKIM or DMARC
+  headers. The message must instead contain exactly one Proton internal-origin marker;
+  external or ambiguous origin markers are rejected.
 
 A matching Inbox address without the required authentication results is rejected and
 never passed to Codex. Attachments are not passed to Codex.
@@ -87,11 +88,11 @@ Install or refresh the logged-in user's LaunchAgent:
 Installation verifies that Mail.app can send from `agent@hushline.app`, verifies Codex
 authentication, copies the executable to a private application-support directory,
 initializes the cursor at the current time, and loads the job. Existing email is therefore
-never interpreted as a new command. When an existing installation first gains Sent-mailbox
-support, the runner establishes a separate Sent cursor before scanning it, so historical
-sent messages are not executed. Reinstalling preserves existing cursors so mail that arrived
-since the prior poll is not skipped. The Aqua user session is required because the runner
-uses Mail.app automation.
+never interpreted as a new command. When an existing installation first gains All Mail
+support, the runner migrates the prior Sent cursor when available; otherwise it establishes
+a separate All Mail cursor before scanning, so historical messages are not executed.
+Reinstalling preserves existing cursors so mail that arrived since the prior poll is not
+skipped. The Aqua user session is required because the runner uses Mail.app automation.
 
 Operational checks:
 

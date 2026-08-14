@@ -54,7 +54,7 @@ on run argv
   set allowedSender to item 1 of argv
   set targetRecipient to item 2 of argv
   set inboxLookbackSeconds to (item 3 of argv) as integer
-  set sentLookbackSeconds to (item 4 of argv) as integer
+  set allMailLookbackSeconds to (item 4 of argv) as integer
   set exportDirectory to item 5 of argv
   set inboxCutoffDate to (current date) - inboxLookbackSeconds
   set exportedIds to {}
@@ -101,15 +101,16 @@ on run argv
       end if
     end repeat
 
-    if sentLookbackSeconds is greater than 0 then
-      set sentCutoffDate to (current date) - sentLookbackSeconds
+    if allMailLookbackSeconds is greater than 0 then
+      set allMailCutoffDate to (current date) - allMailLookbackSeconds
       repeat with mailAccount in every account
         set accountAddresses to email addresses of mailAccount
         if accountAddresses contains targetRecipient then
           try
-            set sentMailbox to mailbox "Sent" of mailAccount
-            set recentSentMessages to every message of sentMailbox whose date sent > sentCutoffDate
-            repeat with mailMessage in recentSentMessages
+            set allMailMailbox to mailbox "All Mail" of mailAccount
+            set recentAllMailMessages to every message of allMailMailbox ¬
+              whose date sent > allMailCutoffDate
+            repeat with mailMessage in recentAllMailMessages
               set senderText to ""
               try
                 set senderText to sender of mailMessage as text
@@ -131,7 +132,7 @@ on run argv
 
               if senderMatched and recipientMatched then
                 set internalId to id of mailMessage as text
-                set exportId to "sent-" & internalId
+                set exportId to "all_mail-" & internalId
                 set rawSource to source of mailMessage as text
                 set headerText to rawSource
                 set headerDivider to return & linefeed & return & linefeed
@@ -145,7 +146,7 @@ on run argv
                 end try
                 my writeUtf8(headerText, exportDirectory & "/" & exportId & ".headers")
                 my writeUtf8(bodyText, exportDirectory & "/" & exportId & ".body")
-                set end of exportedIds to "sent" & tab & internalId
+                set end of exportedIds to "all_mail" & tab & internalId
               end if
             end repeat
           end try
@@ -363,6 +364,11 @@ def authentication_result_is_valid(headers: EmailMessage) -> bool:
     return dkim_passed and dmarc_passed
 
 
+def proton_internal_origin_is_valid(headers: EmailMessage) -> bool:
+    origins = [str(value).strip().lower() for value in headers.get_all("X-Pm-Origin", [])]
+    return origins == ["internal"]
+
+
 def validate_headers(headers: EmailMessage) -> tuple[bool, str]:
     return validate_candidate_headers(headers, "inbox")
 
@@ -377,8 +383,12 @@ def validate_candidate_headers(headers: EmailMessage, mailbox_source: str) -> tu
     message_id = str(headers.get("Message-ID", "")).strip()
     if not message_id:
         return False, "missing_message_id"
-    if mailbox_source == "sent":
-        return True, "trusted_sent_copy"
+    if mailbox_source == "all_mail":
+        if authentication_result_is_valid(headers):
+            return True, "authenticated"
+        if proton_internal_origin_is_valid(headers):
+            return True, "trusted_proton_internal"
+        return False, "authentication_failed"
     if mailbox_source != "inbox":
         return False, "invalid_mailbox_source"
     if not authentication_result_is_valid(headers):
@@ -412,13 +422,13 @@ def parse_candidate(export_dir: Path, mailbox_source: str, internal_id: str) -> 
 
 
 def fetch_candidates(
-    inbox_lookback_seconds: int, sent_lookback_seconds: int | None
+    inbox_lookback_seconds: int, all_mail_lookback_seconds: int | None
 ) -> list[CandidateMessage]:
     bounded_inbox_lookback = max(1, min(inbox_lookback_seconds, MAX_LOOKBACK_SECONDS))
-    bounded_sent_lookback = (
+    bounded_all_mail_lookback = (
         0
-        if sent_lookback_seconds is None
-        else max(1, min(sent_lookback_seconds, MAX_LOOKBACK_SECONDS))
+        if all_mail_lookback_seconds is None
+        else max(1, min(all_mail_lookback_seconds, MAX_LOOKBACK_SECONDS))
     )
     with tempfile.TemporaryDirectory(prefix="hushline-mail-agent-") as temp_dir_name:
         export_dir = Path(temp_dir_name)
@@ -429,7 +439,7 @@ def fetch_candidates(
                 AUTHORIZED_SENDER,
                 AGENT_ADDRESS,
                 str(bounded_inbox_lookback),
-                str(bounded_sent_lookback),
+                str(bounded_all_mail_lookback),
                 str(export_dir),
             ],
             input=MAIL_EXPORT_APPLESCRIPT,
@@ -445,7 +455,7 @@ def fetch_candidates(
             value.strip().partition("\t") for value in result.stdout.splitlines() if value.strip()
         ]
         if any(
-            not separator or mailbox_source not in {"inbox", "sent"}
+            not separator or mailbox_source not in {"inbox", "all_mail"}
             for mailbox_source, separator, _internal_id in exported_messages
         ):
             raise MailCommandAgentError("Mail.app returned an invalid candidate identifier.")
@@ -460,12 +470,9 @@ def fetch_candidates(
 def build_prompt(message: CandidateMessage, workspace_dirs: list[Path]) -> str:
     workspace_lines = "\n".join(f"- {path}" for path in workspace_dirs)
     authentication_summary = (
-        "aligned DKIM and DMARC passed for hushline.app"
-        if message.mailbox_source == "inbox"
-        else (
-            "exact From and To identities matched in the agent account's Sent mailbox; "
-            "same-account Proton messages do not receive external-delivery authentication headers"
-        )
+        "Proton marked the exact-address message as internally originated"
+        if message.mailbox_source == "all_mail" and proton_internal_origin_is_valid(message.headers)
+        else "aligned DKIM and DMARC passed for hushline.app"
     )
     return f"""You are Hush Line's local Mail command agent.
 
@@ -802,13 +809,13 @@ def run(args: argparse.Namespace) -> int:
         scan_started_at = timestamp
         scan_since = int(state.get("scan_since", scan_started_at))
         inbox_lookback_seconds = scan_started_at - scan_since + DEFAULT_POLL_OVERLAP_SECONDS
-        sent_scan_since = state.get("sent_scan_since")
-        sent_lookback_seconds = (
+        all_mail_scan_since = state.get("all_mail_scan_since", state.get("sent_scan_since"))
+        all_mail_lookback_seconds = (
             None
-            if sent_scan_since is None
-            else scan_started_at - int(sent_scan_since) + DEFAULT_POLL_OVERLAP_SECONDS
+            if all_mail_scan_since is None
+            else scan_started_at - int(all_mail_scan_since) + DEFAULT_POLL_OVERLAP_SECONDS
         )
-        candidates = fetch_candidates(inbox_lookback_seconds, sent_lookback_seconds)
+        candidates = fetch_candidates(inbox_lookback_seconds, all_mail_lookback_seconds)
         workspace_dirs = default_workspace_dirs()
         results = [
             process_candidate(
@@ -823,10 +830,11 @@ def run(args: argparse.Namespace) -> int:
         ]
         if not args.dry_run:
             state["scan_since"] = scan_started_at
-            state["sent_scan_since"] = scan_started_at
+            state["all_mail_scan_since"] = scan_started_at
+            state.pop("sent_scan_since", None)
             save_state(path, state)
-            if sent_scan_since is None:
-                print("Initialized Sent mailbox cursor; existing sent messages were not processed.")
+            if all_mail_scan_since is None:
+                print("Initialized All Mail cursor; existing messages were not processed.")
         eligible = sum(result not in {"rejected", "skipped"} for result in results)
         print(f"Mail command scan complete: candidates={len(candidates)} actionable={eligible}.")
         return 0

@@ -81,21 +81,39 @@ def test_rejects_visible_sender_without_dkim_and_dmarc() -> None:
     assert runner.validate_headers(headers) == (False, "authentication_failed")
 
 
-def test_accepts_exact_same_account_command_from_trusted_sent_mailbox() -> None:
+def test_accepts_exact_same_account_command_from_trusted_all_mail() -> None:
     runner = load_runner()
     headers = valid_headers()
     del headers["Authentication-Results"]
+    headers["X-Pm-Origin"] = "internal"
 
-    assert runner.validate_candidate_headers(headers, "sent") == (True, "trusted_sent_copy")
+    assert runner.validate_candidate_headers(headers, "all_mail") == (
+        True,
+        "trusted_proton_internal",
+    )
 
 
-def test_sent_mailbox_still_requires_exact_sender_and_recipient() -> None:
+def test_all_mail_still_requires_exact_sender_and_recipient() -> None:
     runner = load_runner()
     headers = valid_headers()
     headers.replace_header("From", "Attacker <attacker@example.com>")
     del headers["Authentication-Results"]
+    headers["X-Pm-Origin"] = "internal"
 
-    assert runner.validate_candidate_headers(headers, "sent") == (False, "from_mismatch")
+    assert runner.validate_candidate_headers(headers, "all_mail") == (False, "from_mismatch")
+
+
+def test_all_mail_rejects_external_or_ambiguous_proton_origin() -> None:
+    runner = load_runner()
+    headers = valid_headers()
+    del headers["Authentication-Results"]
+    headers["X-Pm-Origin"] = "internal"
+    headers["X-Pm-Origin"] = "external"
+
+    assert runner.validate_candidate_headers(headers, "all_mail") == (
+        False,
+        "authentication_failed",
+    )
 
 
 def test_rejects_untrusted_mailbox_source() -> None:
@@ -131,7 +149,7 @@ def test_prompt_preserves_task_and_repository_authority(tmp_path: Path) -> None:
     assert "aligned DKIM and DMARC passed" in prompt
 
 
-def test_sent_command_prompt_describes_local_mailbox_trust(tmp_path: Path) -> None:
+def test_all_mail_command_prompt_describes_proton_internal_trust(tmp_path: Path) -> None:
     runner = load_runner()
     task = candidate(runner)
     task = runner.CandidateMessage(
@@ -140,13 +158,13 @@ def test_sent_command_prompt_describes_local_mailbox_trust(tmp_path: Path) -> No
         subject=task.subject,
         body=task.body,
         headers=task.headers,
-        mailbox_source="sent",
+        mailbox_source="all_mail",
     )
+    task.headers["X-Pm-Origin"] = "internal"
 
     prompt = runner.build_prompt(task, [tmp_path])
 
-    assert "agent account's Sent mailbox" in prompt
-    assert "do not receive external-delivery authentication headers" in prompt
+    assert "Proton marked the exact-address message as internally originated" in prompt
 
 
 def test_codex_command_uses_approved_model_and_bounded_sandbox(
@@ -316,7 +334,7 @@ def test_reinstall_preserves_existing_cursor(
     assert state["scan_since"] == 12345
 
 
-def test_existing_install_baselines_sent_mailbox_before_scanning(
+def test_existing_install_baselines_all_mail_before_scanning(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     runner = load_runner()
@@ -337,15 +355,47 @@ def test_existing_install_baselines_sent_mailbox_before_scanning(
     assert result == 0
     assert scans == [(700, None)]
     state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
-    assert state["sent_scan_since"] == 200
+    assert state["all_mail_scan_since"] == 200
+    assert "sent_scan_since" not in state
 
 
-def test_mail_export_limits_sent_commands_to_agent_account() -> None:
+def test_existing_install_migrates_sent_cursor_to_all_mail(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    runner = load_runner()
+    monkeypatch.setenv(runner.STATE_DIR_ENV, str(tmp_path))
+    prior_state = runner.initial_state(100)
+    prior_state["sent_scan_since"] = 150
+    runner.save_state(tmp_path / "state.json", prior_state)
+    monkeypatch.setattr(runner, "now_epoch", lambda: 200)
+    scans: list[tuple[int, int | None]] = []
+
+    def record_scan(inbox: int, all_mail: int | None) -> list[Any]:
+        scans.append((inbox, all_mail))
+        return []
+
+    monkeypatch.setattr(runner, "fetch_candidates", record_scan)
+    monkeypatch.setattr(runner, "default_workspace_dirs", lambda: [tmp_path])
+
+    result = runner.run(runner.parse_args([]))
+
+    assert result == 0
+    assert scans == [(700, 650)]
+    state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+    assert state["all_mail_scan_since"] == 200
+    assert "sent_scan_since" not in state
+
+
+def test_mail_export_limits_all_mail_commands_to_agent_account() -> None:
     runner = load_runner()
 
     assert "if accountAddresses contains targetRecipient then" in runner.MAIL_EXPORT_APPLESCRIPT
-    assert 'set sentMailbox to mailbox "Sent" of mailAccount' in runner.MAIL_EXPORT_APPLESCRIPT
-    assert 'set end of exportedIds to "sent" & tab & internalId' in runner.MAIL_EXPORT_APPLESCRIPT
+    assert (
+        'set allMailMailbox to mailbox "All Mail" of mailAccount' in runner.MAIL_EXPORT_APPLESCRIPT
+    )
+    assert (
+        'set end of exportedIds to "all_mail" & tab & internalId' in runner.MAIL_EXPORT_APPLESCRIPT
+    )
 
 
 def test_launchd_template_checks_every_five_minutes() -> None:
