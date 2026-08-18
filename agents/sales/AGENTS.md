@@ -12,8 +12,8 @@ serve organizations that need safer whistleblowing and secure reporting workflow
   - Owns public-source research, lead list preparation, account briefs, and outreach
     draft support.
 - Sales Lead Agent: `docs/SALES-LEAD-AGENT.md`
-  - Screens inbound mail locally, forwards each qualified original with a prepended lead
-    brief to the designated maintainer, and never replies to prospects.
+  - Screens inbound mail locally, sends each qualified original with a prepended lead brief
+    to the designated maintainer, and never replies to prospects.
 
 ## Operating Rules
 

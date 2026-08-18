@@ -589,7 +589,7 @@ def test_run_is_idempotent_and_dry_run_does_not_write_state(
     assert briefs_sent == [42]
 
 
-def test_delivery_prepends_summary_to_one_native_forward(
+def test_delivery_sends_summary_and_original_as_one_forwarded_message(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     del tmp_path
@@ -599,9 +599,13 @@ def test_delivery_prepends_summary_to_one_native_forward(
     def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         captured["command"] = command
         captured["script"] = kwargs["input"]
-        summary_path = Path(command[-1])
+        summary_path = Path(command[-2])
+        original_message_path = Path(command[-1])
         captured["summary_path"] = summary_path
+        captured["original_message_path"] = original_message_path
         assert summary_path.read_text(encoding="utf-8") == "Executive summary"
+        assert original_message_path.name == "original-message.eml"
+        assert original_message_path.parent.stat().st_mode & 0o777 == 0o700
         return subprocess.CompletedProcess(command, 0, "", "")
 
     monkeypatch.setattr(runner.subprocess, "run", fake_run)
@@ -616,14 +620,35 @@ def test_delivery_prepends_summary_to_one_native_forward(
         "glenn@hushline.app",
     ]
     script = str(captured["script"])
-    assert "set qualifiedForward to forward sourceMessage with opening window" in script
-    assert "set content to messageBody & return & return & content" in script
-    assert "set briefMessage to make new outgoing message" not in script
-    assert "make new attachment" not in script
-    assert script.count("        send\n") == 1
+    assert "set deliveryMessage to make new outgoing message" in script
+    assert '"Begin forwarded message:"' in script
+    assert "source of sourceMessage as text" in script
+    assert "make new attachment" in script
+    assert "serializedBody does not contain messageBody" in script
+    assert script.count("        send deliveryMessage\n") == 1
+    assert script.index("send deliveryMessage") < script.index(
+        "set read status of sourceMessage to true"
+    )
     summary_path = captured["summary_path"]
     assert isinstance(summary_path, Path)
     assert not summary_path.exists()
+    original_message_path = captured["original_message_path"]
+    assert isinstance(original_message_path, Path)
+    assert not original_message_path.parent.exists()
+
+
+def test_delivery_rejects_empty_summary_without_calling_mail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = load_runner()
+
+    def unexpected_run(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("Mail must not be called for an empty executive summary")
+
+    monkeypatch.setattr(runner.subprocess, "run", unexpected_run)
+
+    with pytest.raises(runner.SalesLeadAgentError, match="empty executive summary"):
+        runner.deliver_qualified_lead(lead_message(runner), "  \n")
 
 
 def test_launchd_assets_are_gui_scoped_and_poll_every_five_minutes() -> None:
