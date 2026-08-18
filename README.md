@@ -19,8 +19,8 @@ in their owning repositories.
 - `agents/product/reporting/`: weekly local runner reporting script and tests.
 - `agents/social/`: social agent package, launchd wrappers, Node planners/publishers,
   templates, assets, docs, tests, and LaunchAgent/LaunchDaemon templates.
-- `agents/sales/`: sales contact agent, launchd wrappers, deploy templates, tests, and
-  sales scoped operating instructions.
+- `agents/sales/`: outbound sales contact and inbound lead-screening agents, launchd
+  wrappers, deploy templates, tests, docs, and sales scoped operating instructions.
 - `agents/product/AGENTS*.md`: product scoped agent roles, including accessibility,
   QA, and security.
 - `agents/sales/AGENTS*.md`: sales scoped agent roles, including AE and SDR.
