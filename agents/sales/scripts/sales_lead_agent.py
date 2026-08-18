@@ -149,7 +149,12 @@ on run argv
   set recipientAddress to item 2 of argv
   set targetLocalID to item 3 of argv as integer
   set bodyPath to item 4 of argv
+  set originalMessagePath to item 5 of argv
   set messageBody to read POSIX file bodyPath as «class utf8»
+
+  if length of messageBody is 0 then
+    error "Refusing to send a qualified lead with an empty executive summary"
+  end if
 
   tell application "Mail"
     set matchingAccount to missing value
@@ -181,16 +186,64 @@ on run argv
     end if
 
     with timeout of 300 seconds
-      set qualifiedForward to forward sourceMessage with opening window
-      delay 1
-      tell qualifiedForward
-        set content to messageBody & return & return & content
-        set visible to false
-        set sender to fromAddress
-        make new to recipient at end of to recipients with properties {address:recipientAddress}
-        send
-      end tell
-      set read status of sourceMessage to true
+      set sourceSubject to subject of sourceMessage as text
+      set forwardedSubject to sourceSubject
+      ignoring case
+        if forwardedSubject does not start with "Fwd:" then
+          set forwardedSubject to "Fwd: " & forwardedSubject
+        end if
+      end ignoring
+
+      set originalBody to content of sourceMessage as text
+      set forwardedBody to messageBody & return & return & ¬
+        "Begin forwarded message:" & return & ¬
+        "From: " & (sender of sourceMessage as text) & return & ¬
+        "Date: " & (date received of sourceMessage as text) & return & ¬
+        "Subject: " & sourceSubject & return & return & originalBody
+
+      set originalFile to POSIX file originalMessagePath
+      set originalFileHandle to missing value
+      try
+        set originalFileHandle to open for access originalFile with write permission
+        set eof originalFileHandle to 0
+        write (source of sourceMessage as text) to originalFileHandle as «class utf8»
+        close access originalFileHandle
+        set originalFileHandle to missing value
+      on error writeErrorMessage number writeErrorNumber
+        if originalFileHandle is not missing value then
+          try
+            close access originalFileHandle
+          end try
+        end if
+        error writeErrorMessage number writeErrorNumber
+      end try
+
+      set deliveryMessage to missing value
+      try
+        set deliveryMessage to make new outgoing message with properties ¬
+          {subject:forwardedSubject, content:forwardedBody, visible:false}
+        set serializedBody to content of deliveryMessage as text
+        if length of serializedBody is 0 or serializedBody does not contain messageBody then
+          error "Refusing to send a qualified lead because Mail serialized an empty body"
+        end if
+        tell deliveryMessage
+          set sender to fromAddress
+          make new to recipient at end of to recipients with properties ¬
+            {address:recipientAddress}
+          make new attachment with properties {file name:(originalFile as alias)} ¬
+            at after the last paragraph
+        end tell
+        delay 2
+        send deliveryMessage
+        set read status of sourceMessage to true
+      on error deliveryErrorMessage number deliveryErrorNumber
+        if deliveryMessage is not missing value then
+          try
+            close deliveryMessage saving no
+          end try
+        end if
+        error deliveryErrorMessage number deliveryErrorNumber
+      end try
     end timeout
   end tell
 end run
@@ -1607,7 +1660,11 @@ def record_processed(
 
 
 def deliver_qualified_lead(message: MailMessage, summary: str) -> None:
+    if not summary.strip():
+        raise SalesLeadAgentError("Refusing to deliver an empty executive summary.")
+
     summary_path: Path | None = None
+    original_message_directory: tempfile.TemporaryDirectory[str] | None = None
     try:
         with tempfile.NamedTemporaryFile(
             mode="w", encoding="utf-8", prefix="hushline-sales-summary-", delete=False
@@ -1615,6 +1672,8 @@ def deliver_qualified_lead(message: MailMessage, summary: str) -> None:
             os.fchmod(handle.fileno(), 0o600)
             handle.write(summary)
             summary_path = Path(handle.name)
+        original_message_directory = tempfile.TemporaryDirectory(prefix="hushline-sales-original-")
+        original_message_path = Path(original_message_directory.name) / "original-message.eml"
         command = [
             "/usr/bin/osascript",
             "-",
@@ -1622,6 +1681,7 @@ def deliver_qualified_lead(message: MailMessage, summary: str) -> None:
             BRIEF_RECIPIENT,
             str(message.local_id),
             str(summary_path),
+            str(original_message_path),
         ]
         try:
             result = subprocess.run(  # noqa: S603 - fixed osascript command and trusted arguments.
@@ -1653,6 +1713,8 @@ def deliver_qualified_lead(message: MailMessage, summary: str) -> None:
     finally:
         if summary_path is not None:
             summary_path.unlink(missing_ok=True)
+        if original_message_directory is not None:
+            original_message_directory.cleanup()
 
 
 def run(*, dry_run: bool, state_file: Path, max_messages: int) -> tuple[int, int, int, int]:

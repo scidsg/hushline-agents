@@ -1,14 +1,14 @@
 # Sales Lead Agent
 
 The sales lead agent screens unread messages in the local macOS Mail account
-`sales@hushline.app`. For each qualified lead, it forwards the original message to
+`sales@hushline.app`. For each qualified lead, it sends one `Fwd:` message to
 `glenn@hushline.app` with an executive summary prepended. It does not reply to the sender.
 
 ## Lead brief
 
-Each qualified lead produces one native Mail forward. The agent prepends its plain-text
-executive summary to the forward while preserving the original email and attachments
-below it. The summary includes:
+Each qualified lead produces one Mail message. The agent prepends its plain-text executive
+summary, reproduces the original sender, date, subject, and body below it, and attaches the
+original `.eml` so its full headers and attachments remain available. The summary includes:
 
 - the From/display identity separately from the personal identity claimed in the body or
   signature, plus any claimed role and email address;
@@ -78,9 +78,10 @@ OpenAI, a lead-enrichment service, or another external processor.
 ## Mail and state behavior
 
 - Only unread messages in the `sales@hushline.app` account's Inbox are considered.
-- The qualified lead is forwarded once from `sales@hushline.app` to
-  `glenn@hushline.app`, with the executive summary above the original message. The source
-  message is marked read only after Mail accepts the forward.
+- The qualified lead is sent once from `sales@hushline.app` to `glenn@hushline.app`, with
+  the executive summary above the original message and the source `.eml` attached. The agent
+  refuses to send if Mail does not retain the summary, and marks the source message read only
+  after Mail accepts the message.
 - Screened-out messages remain unread for human review but are not assessed again.
 - State contains only a SHA-256 message fingerprint, decision, numeric score, and
   processing timestamp. It does not contain names, addresses, subjects, or message bodies.
