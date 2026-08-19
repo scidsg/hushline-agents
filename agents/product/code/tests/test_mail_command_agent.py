@@ -204,7 +204,11 @@ def test_process_candidate_runs_once_and_replies(
         "run_codex",
         lambda *_args: runner.CodexResponse("completed", "The homepage was updated."),
     )
-    monkeypatch.setattr(runner, "send_reply", lambda subject, body: sent.append((subject, body)))
+    monkeypatch.setattr(
+        runner,
+        "send_reply",
+        lambda message, body: sent.append((message.subject, body)),
+    )
 
     first = runner.process_candidate(
         candidate(runner), state, path, tmp_path, workspace_dirs=[tmp_path], dry_run=False
@@ -230,7 +234,7 @@ def test_failed_codex_run_is_not_retried(monkeypatch: pytest.MonkeyPatch, tmp_pa
         raise runner.MailCommandAgentError("simulated failure")
 
     monkeypatch.setattr(runner, "run_codex", fail)
-    monkeypatch.setattr(runner, "send_reply", lambda _subject, body: sent.append(body))
+    monkeypatch.setattr(runner, "send_reply", lambda _message, body: sent.append(body))
 
     first = runner.process_candidate(
         candidate(runner), state, path, tmp_path, workspace_dirs=[tmp_path], dry_run=False
@@ -288,7 +292,7 @@ def test_pending_reply_is_retried_without_rerunning_codex(
         "run_codex",
         lambda *_args: pytest.fail("Codex must not rerun while a reply is pending"),
     )
-    monkeypatch.setattr(runner, "send_reply", lambda _subject, body: sent.append(body))
+    monkeypatch.setattr(runner, "send_reply", lambda _message, body: sent.append(body))
 
     result = runner.process_candidate(
         task,
@@ -426,35 +430,24 @@ def test_send_reply_is_pinned_to_agent_and_glenn(monkeypatch: pytest.MonkeyPatch
         return subprocess.CompletedProcess(command, 0, "", "")
 
     monkeypatch.setattr(runner.subprocess, "run", fake_run)
-    runner.send_reply("Question", "Done.")
+    runner.send_reply(candidate(runner), "Done.")
 
     assert calls[0][2:4] == ["agent@hushline.app", "glenn@hushline.app"]
-    assert calls[0][4] == "Agent result: Question"
+    assert calls[0][4:6] == ["inbox", "42"]
 
 
-@pytest.mark.parametrize(
-    ("original", "expected"),
-    [
-        ("Question", "Agent result: Question"),
-        ("Re: Question", "Agent result: Question"),
-        ("Fwd: Re: Question", "Agent result: Question"),
-        ("  ", "Agent result: (no subject)"),
-    ],
-)
-def test_reply_subject_is_standalone(original: str, expected: str) -> None:
-    runner = load_runner()
-
-    assert runner.reply_subject(original) == expected
-
-
-def test_send_reply_constructs_and_validates_a_standalone_body() -> None:
+def test_send_reply_uses_native_mail_reply_with_recipient_guards() -> None:
     runner = load_runner()
     script = runner.MAIL_SEND_APPLESCRIPT
 
-    assert "make new outgoing message with properties" in script
-    assert "serializedBody does not contain messageBody" in script
+    assert "reply sourceMessage opening window false" in script
+    assert "set content of responseMessage to messageBody" in script
+    assert "Native reply has an unexpected recipient count" in script
+    assert "Native reply recipient does not match the authorized sender" in script
+    assert "unexpectedly includes a CC recipient" in script
+    assert "unexpectedly includes a BCC recipient" in script
     assert "Refusing to send an empty agent response" in script
-    assert script.count("      send responseMessage\n") == 1
+    assert script.count("      tell responseMessage to send\n") == 1
 
 
 def test_send_reply_rejects_an_empty_body(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -465,4 +458,4 @@ def test_send_reply_rejects_an_empty_body(monkeypatch: pytest.MonkeyPatch) -> No
 
     monkeypatch.setattr(runner.subprocess, "run", unexpected_run)
     with pytest.raises(runner.MailCommandAgentError, match="empty agent response"):
-        runner.send_reply("Question", "  \n")
+        runner.send_reply(candidate(runner), "  \n")

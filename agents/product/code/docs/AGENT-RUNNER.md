@@ -72,9 +72,10 @@ repository directories are the only additional writable roots. Repository `AGENT
 files remain authoritative. Codex can complete a clear request, ask a concise clarifying
 question, or report that it is blocked. The wrapper sends the final response from
 `agent@hushline.app` only to `glenn@hushline.app`; the model is instructed not to send
-mail itself. Responses use a standalone `Agent result:` subject instead of `Re:` so Mail
-and Proton do not collapse the new response body into the command's quoted conversation.
-Before sending, the wrapper verifies that Mail serialized the complete non-empty body.
+mail itself. Responses use Mail's native reply action, place the agent response in the
+reply body above Mail's normal quoted original, and retain standard reply-thread headers.
+Before sending, the wrapper refuses an empty body and verifies that the native reply has
+exactly one recipient—`glenn@hushline.app`—with no CC or BCC recipients.
 
 The local state file stores only a SHA-256 digest of each processed `Message-ID`, status,
 timestamps, and a non-sensitive result label. Subjects and bodies are not logged. The

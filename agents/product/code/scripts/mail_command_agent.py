@@ -170,8 +170,9 @@ MAIL_SEND_APPLESCRIPT = r"""
 on run argv
   set fromAddress to item 1 of argv
   set toAddress to item 2 of argv
-  set messageSubject to item 3 of argv
-  set bodyPath to item 4 of argv
+  set mailboxSource to item 3 of argv
+  set targetLocalID to item 4 of argv as integer
+  set bodyPath to item 5 of argv
   set messageBody to read POSIX file bodyPath as «class utf8»
 
   if length of messageBody is 0 then
@@ -190,20 +191,51 @@ on run argv
       error "Mail account not found for " & fromAddress
     end if
 
+    if mailboxSource is "all_mail" then
+      set sourceMailbox to mailbox "All Mail" of matchingAccount
+    else if mailboxSource is "inbox" then
+      try
+        set sourceMailbox to mailbox "INBOX" of matchingAccount
+      on error
+        set sourceMailbox to mailbox "Inbox" of matchingAccount
+      end try
+    else
+      error "Unsupported Mail source for native reply"
+    end if
+
+    set sourceMessage to missing value
+    repeat with mailMessage in every message of sourceMailbox
+      if id of mailMessage is targetLocalID then
+        set sourceMessage to mailMessage
+        exit repeat
+      end if
+    end repeat
+    if sourceMessage is missing value then
+      error "Source message is no longer available for native reply"
+    end if
+
     set responseMessage to missing value
     try
-      set responseMessage to make new outgoing message with properties ¬
-        {subject:messageSubject, content:messageBody, visible:false}
-      set serializedBody to content of responseMessage as text
-      if length of serializedBody is 0 or serializedBody does not contain messageBody then
-        error "Refusing to send an agent response because Mail serialized an empty body"
+      set responseMessage to reply sourceMessage opening window false
+      set content of responseMessage to messageBody
+      set sender of responseMessage to fromAddress
+
+      if (count of to recipients of responseMessage) is not 1 then
+        error "Native reply has an unexpected recipient count"
       end if
-      tell responseMessage
-        set sender to fromAddress
-        make new to recipient at end of to recipients with properties {address:toAddress}
-      end tell
-      delay 2
-      send responseMessage
+      ignoring case
+        if address of item 1 of to recipients of responseMessage is not toAddress then
+          error "Native reply recipient does not match the authorized sender"
+        end if
+      end ignoring
+      if (count of cc recipients of responseMessage) is not 0 then
+        error "Native reply unexpectedly includes a CC recipient"
+      end if
+      if (count of bcc recipients of responseMessage) is not 0 then
+        error "Native reply unexpectedly includes a BCC recipient"
+      end if
+
+      tell responseMessage to send
     on error deliveryErrorMessage number deliveryErrorNumber
       if responseMessage is not missing value then
         try
@@ -616,14 +648,7 @@ def run_codex(
     return parse_codex_response(response_path)
 
 
-def reply_subject(original_subject: str) -> str:
-    normalized = " ".join(original_subject.replace("\r", " ").replace("\n", " ").split())
-    while re.match(r"(?i)^(?:re|fw|fwd):\s*", normalized):
-        normalized = re.sub(r"(?i)^(?:re|fw|fwd):\s*", "", normalized, count=1)
-    return f"Agent result: {normalized or '(no subject)'}"[:998]
-
-
-def send_reply(subject: str, body: str) -> None:
+def send_reply(message: CandidateMessage, body: str) -> None:
     if not body.strip():
         raise MailCommandAgentError("Refusing to send an empty agent response.")
     with tempfile.NamedTemporaryFile(
@@ -639,7 +664,8 @@ def send_reply(subject: str, body: str) -> None:
                 "-",
                 AGENT_ADDRESS,
                 AUTHORIZED_SENDER,
-                reply_subject(subject),
+                message.mailbox_source,
+                message.internal_id,
                 str(body_path),
             ],
             input=MAIL_SEND_APPLESCRIPT,
@@ -707,7 +733,7 @@ def process_candidate(  # noqa: PLR0913 - explicit dependencies keep the mail bo
         if prior_status == "ready_to_reply":
             output_path = response_file(state_dir, key)
             response = parse_codex_response(output_path)
-            send_reply(message.subject, response.reply_body)
+            send_reply(message, response.reply_body)
             update_message_state(state, key, "replied", now_epoch(), result=response.status)
             save_state(path, state)
             output_path.unlink(missing_ok=True)
@@ -719,7 +745,7 @@ def process_candidate(  # noqa: PLR0913 - explicit dependencies keep the mail bo
                 "changed local or remote state. I will not rerun it automatically. Please check "
                 "the mail-command-agent logs and current repository state before resending it."
             )
-            send_reply(message.subject, interrupted_body)
+            send_reply(message, interrupted_body)
             update_message_state(state, key, "interrupted_replied", now_epoch())
             save_state(path, state)
             print(f"Reported interrupted mail command {short_key} to the authorized sender.")
@@ -750,7 +776,7 @@ def process_candidate(  # noqa: PLR0913 - explicit dependencies keep the mail bo
 
     update_message_state(state, key, "ready_to_reply", now_epoch(), result=response.status)
     save_state(path, state)
-    send_reply(message.subject, response.reply_body)
+    send_reply(message, response.reply_body)
     update_message_state(state, key, "replied", now_epoch(), result=response.status)
     save_state(path, state)
     output_path.unlink(missing_ok=True)
