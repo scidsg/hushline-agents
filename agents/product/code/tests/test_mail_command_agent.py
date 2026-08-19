@@ -398,6 +398,17 @@ def test_mail_export_limits_all_mail_commands_to_agent_account() -> None:
     )
 
 
+def test_mail_export_refreshes_mail_before_scanning() -> None:
+    runner = load_runner()
+    script = runner.MAIL_EXPORT_APPLESCRIPT
+
+    assert 'tell application "Mail" to check for new mail' in script
+    assert "delay 5" in script
+    assert script.index('tell application "Mail" to check for new mail') < script.index(
+        "set recentMessages to every message of inbox"
+    )
+
+
 def test_launchd_template_checks_every_minute() -> None:
     plist = PLIST_PATH.read_text(encoding="utf-8")
 

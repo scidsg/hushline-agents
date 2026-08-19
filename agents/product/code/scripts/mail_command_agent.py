@@ -59,6 +59,9 @@ on run argv
   set inboxCutoffDate to (current date) - inboxLookbackSeconds
   set exportedIds to {}
 
+  tell application "Mail" to check for new mail
+  delay 5
+
   tell application "Mail"
     set recentMessages to every message of inbox whose date received is greater than inboxCutoffDate
     repeat with mailMessage in recentMessages

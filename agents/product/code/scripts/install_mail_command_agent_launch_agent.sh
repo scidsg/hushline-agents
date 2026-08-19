@@ -59,9 +59,9 @@ usage() {
 Usage:
   ./agents/product/code/scripts/install_mail_command_agent_launch_agent.sh
 
-Installs a GUI LaunchAgent that checks Mail.app every minute for authenticated
-messages from glenn@hushline.app addressed to agent@hushline.app. Existing messages are
-baselined during installation and are never treated as new commands.
+Installs a GUI LaunchAgent that refreshes and checks Mail.app every minute for
+authenticated messages from glenn@hushline.app addressed to agent@hushline.app. Existing
+messages are baselined during installation and are never treated as new commands.
 EOF
 }
 

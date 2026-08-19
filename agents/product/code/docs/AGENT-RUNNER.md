@@ -47,8 +47,9 @@ after reboot rather than as a system daemon before login.
 
 Script: `agents/product/code/scripts/mail_command_agent.py`
 
-The optional mail command agent polls the native macOS Mail app every minute. It
-accepts two narrowly scoped command sources:
+The optional mail command agent polls the native macOS Mail app every minute. Before each
+scan, it explicitly asks Mail to check for new messages and waits five seconds for Mail and
+the configured mail bridge to settle. It accepts two narrowly scoped command sources:
 
 - New Inbox messages whose visible and parsed `From` address is exactly
   `glenn@hushline.app`, whose `To` header includes `agent@hushline.app`, and whose first
