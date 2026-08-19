@@ -429,3 +429,40 @@ def test_send_reply_is_pinned_to_agent_and_glenn(monkeypatch: pytest.MonkeyPatch
     runner.send_reply("Question", "Done.")
 
     assert calls[0][2:4] == ["agent@hushline.app", "glenn@hushline.app"]
+    assert calls[0][4] == "Agent result: Question"
+
+
+@pytest.mark.parametrize(
+    ("original", "expected"),
+    [
+        ("Question", "Agent result: Question"),
+        ("Re: Question", "Agent result: Question"),
+        ("Fwd: Re: Question", "Agent result: Question"),
+        ("  ", "Agent result: (no subject)"),
+    ],
+)
+def test_reply_subject_is_standalone(original: str, expected: str) -> None:
+    runner = load_runner()
+
+    assert runner.reply_subject(original) == expected
+
+
+def test_send_reply_constructs_and_validates_a_standalone_body() -> None:
+    runner = load_runner()
+    script = runner.MAIL_SEND_APPLESCRIPT
+
+    assert "make new outgoing message with properties" in script
+    assert "serializedBody does not contain messageBody" in script
+    assert "Refusing to send an empty agent response" in script
+    assert script.count("      send responseMessage\n") == 1
+
+
+def test_send_reply_rejects_an_empty_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = load_runner()
+
+    def unexpected_run(*_args: Any, **_kwargs: Any) -> None:
+        pytest.fail("Mail must not be called for an empty agent response")
+
+    monkeypatch.setattr(runner.subprocess, "run", unexpected_run)
+    with pytest.raises(runner.MailCommandAgentError, match="empty agent response"):
+        runner.send_reply("Question", "  \n")

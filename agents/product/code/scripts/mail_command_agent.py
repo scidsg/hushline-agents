@@ -174,6 +174,10 @@ on run argv
   set bodyPath to item 4 of argv
   set messageBody to read POSIX file bodyPath as «class utf8»
 
+  if length of messageBody is 0 then
+    error "Refusing to send an empty agent response"
+  end if
+
   tell application "Mail"
     set matchingAccount to missing value
     repeat with mailAccount in every account
@@ -186,15 +190,28 @@ on run argv
       error "Mail account not found for " & fromAddress
     end if
 
-    set responseMessage to make new outgoing message
-    set subject of responseMessage to messageSubject
-    set content of responseMessage to messageBody
-    set visible of responseMessage to false
-    tell responseMessage
-      set sender to fromAddress
-      make new to recipient at end of to recipients with properties {address:toAddress}
-      send
-    end tell
+    set responseMessage to missing value
+    try
+      set responseMessage to make new outgoing message with properties ¬
+        {subject:messageSubject, content:messageBody, visible:false}
+      set serializedBody to content of responseMessage as text
+      if length of serializedBody is 0 or serializedBody does not contain messageBody then
+        error "Refusing to send an agent response because Mail serialized an empty body"
+      end if
+      tell responseMessage
+        set sender to fromAddress
+        make new to recipient at end of to recipients with properties {address:toAddress}
+      end tell
+      delay 2
+      send responseMessage
+    on error deliveryErrorMessage number deliveryErrorNumber
+      if responseMessage is not missing value then
+        try
+          close responseMessage saving no
+        end try
+      end if
+      error deliveryErrorMessage number deliveryErrorNumber
+    end try
   end tell
 end run
 """
@@ -601,12 +618,14 @@ def run_codex(
 
 def reply_subject(original_subject: str) -> str:
     normalized = " ".join(original_subject.replace("\r", " ").replace("\n", " ").split())
-    if not normalized.lower().startswith("re:"):
-        normalized = f"Re: {normalized}"
-    return normalized[:998]
+    while re.match(r"(?i)^(?:re|fw|fwd):\s*", normalized):
+        normalized = re.sub(r"(?i)^(?:re|fw|fwd):\s*", "", normalized, count=1)
+    return f"Agent result: {normalized or '(no subject)'}"[:998]
 
 
 def send_reply(subject: str, body: str) -> None:
+    if not body.strip():
+        raise MailCommandAgentError("Refusing to send an empty agent response.")
     with tempfile.NamedTemporaryFile(
         "w", encoding="utf-8", suffix=".txt", delete=False
     ) as body_file:
