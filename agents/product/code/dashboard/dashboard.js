@@ -20,6 +20,18 @@ function svgElement(name, attributes = {}) {
   return element;
 }
 
+function smoothLinePath(points) {
+  if (points.length === 0) return "";
+  let path = `M ${points[0].x} ${points[0].y}`;
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const current = points[index];
+    const midpointX = (previous.x + current.x) / 2;
+    path += ` C ${midpointX} ${previous.y}, ${midpointX} ${current.y}, ${current.x} ${current.y}`;
+  }
+  return path;
+}
+
 function renderLegend(series) {
   const legend = document.getElementById("chart-legend");
   legend.replaceChildren();
@@ -85,11 +97,11 @@ function renderChart(activity) {
     const points = item.values.map((value, index) => {
       const x = margin.left + (plotWidth * index) / Math.max(1, item.values.length - 1);
       const y = margin.top + plotHeight - (plotHeight * value) / maxValue;
-      return `${x},${y}`;
+      return { x, y };
     });
     svg.append(
-      svgElement("polyline", {
-        points: points.join(" "),
+      svgElement("path", {
+        d: smoothLinePath(points),
         fill: "none",
         stroke: item.color,
         "stroke-width": 3,

@@ -295,6 +295,8 @@ def test_dashboard_assets_are_hush_line_branded_and_dependency_free() -> None:
     assert "http://" not in html
     assert 'fetch("/api/dashboard"' in javascript
     assert "renderLastNewsPost" in javascript
+    assert "smoothLinePath" in javascript
+    assert 'svgElement("path"' in javascript
 
 
 def test_launchd_and_tailscale_assets_keep_backend_private() -> None:
