@@ -121,6 +121,30 @@
             </div>
           </div>
         </article>
+
+        <article class="panel delivery-panel" aria-labelledby="delivery-heading">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Previous day post</p>
+              <h2 id="delivery-heading">Platform delivery</h2>
+            </div>
+            <time id="delivery-date" class="delivery-date"></time>
+          </div>
+          <ul class="platform-status-list">
+            <li>
+              <span>LinkedIn</span>
+              <span id="delivery-linkedin" class="platform-status" role="img"></span>
+            </li>
+            <li>
+              <span>Mastodon</span>
+              <span id="delivery-mastodon" class="platform-status" role="img"></span>
+            </li>
+            <li>
+              <span>Bluesky</span>
+              <span id="delivery-bluesky" class="platform-status" role="img"></span>
+            </li>
+          </ul>
+        </article>
       </section>
 
       <section class="panel runners-panel" aria-labelledby="runners-heading">
@@ -136,7 +160,7 @@
     </main>
 
     <footer>
-      <p>Private Hush Line operations surface · Loopback service · Tailnet access only</p>
+      <p>Private Hush Line operations surface · Tailscale IP · Tailnet access only</p>
     </footer>
   </body>
 </html>

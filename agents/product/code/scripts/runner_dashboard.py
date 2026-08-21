@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import os
 import re
@@ -29,6 +30,7 @@ MAX_NEWS_ARCHIVE_BYTES = 1_000_000
 MAX_URL_LENGTH = 2_000
 MAX_PORT = 65_535
 PORT_ENV = "HUSHLINE_RUNNER_DASHBOARD_PORT"
+TAILSCALE_IPV4_NETWORK = ipaddress.ip_network("100.64.0.0/10")
 
 DATE_RE = re.compile(r"(?P<date>20\d{2}-\d{2}-\d{2})")
 STATE_RE = re.compile(r"^\s*state = (?P<state>[a-z-]+)\s*$", re.MULTILINE)
@@ -457,6 +459,22 @@ def last_news_post(social_repo_dir: Path) -> dict[str, Any]:
     return max(candidates, key=lambda item: item[0])[1]
 
 
+def previous_day_platform_status(social_repo_dir: Path, *, today: date) -> dict[str, Any]:
+    planned_date = (today - timedelta(days=1)).isoformat()
+    archive_dir = social_repo_dir / "previous-posts" / planned_date
+    platforms: dict[str, bool] = {}
+    for platform in NEWS_PLATFORM_LABELS:
+        receipt = read_archive_json(archive_dir / f"{platform}-publication.json")
+        platforms[platform] = bool(
+            receipt
+            and receipt.get("platform") == platform
+            and receipt.get("planned_date") == planned_date
+            and parse_publication_time(receipt.get("published_at")) is not None
+            and publication_link(platform, receipt) is not None
+        )
+    return {"planned_date": planned_date, "platforms": platforms}
+
+
 def activity_series(
     specs: tuple[RunnerSpec, ...], *, today: date, days: int = DEFAULT_ACTIVITY_DAYS
 ) -> dict[str, Any]:
@@ -513,7 +531,11 @@ def build_snapshot(
     runners = [runner_status(spec, launchctl_reader) for spec in specs]
     activity = activity_series(specs, today=current.date())
     leads = lead_metrics(repo_dir / "logs/sales/lead-agent/state.json", today=current.date())
-    news_post = last_news_post(social_repo_dir or repo_dir.parent / "hushline-social")
+    social_repo = social_repo_dir or repo_dir.parent / "hushline-social"
+    news_post = last_news_post(social_repo)
+    previous_day_status = previous_day_platform_status(
+        social_repo, today=current.astimezone().date()
+    )
     failed = sum(item["status"] == "failed" for item in runners)
     running = sum(item["status"] == "running" for item in runners)
     healthy = sum(item["status"] == "healthy" for item in runners)
@@ -535,11 +557,24 @@ def build_snapshot(
         "activity": activity,
         "leads": leads,
         "last_news_post": news_post,
+        "previous_day_post_status": previous_day_status,
     }
 
 
 def static_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "dashboard"
+
+
+def bind_host_is_private(host: str) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address.is_loopback or (
+        isinstance(address, ipaddress.IPv4Address) and address in TAILSCALE_IPV4_NETWORK
+    )
 
 
 def security_headers(handler: HeaderWriter, content_type: str) -> None:
@@ -620,8 +655,8 @@ def serve(
     *,
     social_repo_dir: Path | None = None,
 ) -> None:
-    if host not in {"127.0.0.1", "::1", "localhost"}:
-        raise ValueError("The dashboard must bind to a loopback address")
+    if not bind_host_is_private(host):
+        raise ValueError("The dashboard must bind to loopback or a Tailscale IPv4 address")
     if port < 1 or port > MAX_PORT:
         raise ValueError("Dashboard port must be between 1 and 65535")
     server = ThreadingHTTPServer((host, port), make_handler(repo_dir, home_dir, social_repo_dir))

@@ -15,7 +15,7 @@ DASHBOARD_DIR = ROOT / "agents/product/code/dashboard"
 PLIST_PATH = ROOT / "agents/product/code/deploy/launchd/com.hushline.runner-dashboard.plist"
 INSTALLER_PATH = ROOT / "agents/product/code/scripts/install_runner_dashboard_launch_agent.sh"
 RUN_SCRIPT_PATH = ROOT / "agents/product/code/scripts/run_runner_dashboard.sh"
-TAILSCALE_SCRIPT_PATH = ROOT / "agents/product/code/scripts/configure_runner_dashboard_tailscale.sh"
+NETWORK_SCRIPT_PATH = ROOT / "agents/product/code/scripts/lib/runner-dashboard-network.sh"
 
 
 def load_runner() -> ModuleType:
@@ -262,6 +262,53 @@ def test_last_news_post_ignores_unpublished_and_unsafe_archives(tmp_path: Path) 
     assert runner.last_news_post(social_repo) == {"available": False}
 
 
+def test_previous_day_platform_status_requires_valid_publication_receipts(
+    tmp_path: Path,
+) -> None:
+    runner = load_runner()
+    social_repo = tmp_path / "hushline-social"
+    archive = social_repo / "previous-posts" / "2026-08-20"
+    archive.mkdir(parents=True)
+    (archive / "linkedin-publication.json").write_text(
+        json.dumps(
+            {
+                "platform": "linkedin",
+                "planned_date": "2026-08-20",
+                "published_at": "2026-08-20T19:00:00Z",
+                "post_id": "urn:li:share:7496642425214611457",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (archive / "mastodon-publication.json").write_text(
+        json.dumps(
+            {
+                "platform": "mastodon",
+                "planned_date": "2026-08-20",
+                "published_at": "not-a-date",
+                "status_url": "https://mastodon.social/@hushlineapp/123",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (archive / "bluesky-publication.json").write_text(
+        json.dumps(
+            {
+                "platform": "bluesky",
+                "planned_date": "2026-08-19",
+                "published_at": "2026-08-20T19:00:00Z",
+                "post_url": "https://bsky.app/profile/hushline.app/post/abc",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert runner.previous_day_platform_status(social_repo, today=date(2026, 8, 21)) == {
+        "planned_date": "2026-08-20",
+        "platforms": {"linkedin": True, "mastodon": False, "bluesky": False},
+    }
+
+
 def test_dashboard_sends_strict_security_headers() -> None:
     runner = load_runner()
 
@@ -289,12 +336,14 @@ def test_dashboard_assets_are_hush_line_branded_and_dependency_free() -> None:
     assert "Hush Line" in html
     assert "Agent Operations" in html
     assert "Last news post" in html
+    assert "Platform delivery" in html
     assert "#7d25c1" in css
     assert "Atkinson Hyperlegible" in css
     assert "https://" not in html
     assert "http://" not in html
     assert 'fetch("/api/dashboard"' in javascript
     assert "renderLastNewsPost" in javascript
+    assert "renderPreviousDayStatus" in javascript
     assert "smoothLinePath" in javascript
     assert 'svgElement("path"' in javascript
 
@@ -303,21 +352,30 @@ def test_launchd_and_tailscale_assets_keep_backend_private() -> None:
     plist = PLIST_PATH.read_text(encoding="utf-8")
     installer = INSTALLER_PATH.read_text(encoding="utf-8")
     run_script = RUN_SCRIPT_PATH.read_text(encoding="utf-8")
-    tailscale_script = TAILSCALE_SCRIPT_PATH.read_text(encoding="utf-8")
+    network_script = NETWORK_SCRIPT_PATH.read_text(encoding="utf-8")
 
     assert "run_runner_dashboard.sh" in plist
     assert "<key>KeepAlive</key>" in plist
-    assert "127.0.0.1" in run_script
-    assert "0.0.0.0" not in run_script  # noqa: S104 - assert loopback-only configuration.
-    assert "tailscale serve" in tailscale_script
-    assert "--https=" in tailscale_script
-    assert "tailscale funnel" not in tailscale_script
-    assert "127.0.0.1" in tailscale_script
-    assert "configure_runner_dashboard_tailscale.sh" in installer
+    assert "resolve_runner_dashboard_host" in run_script
+    assert "tailscale ip -4" in network_script
+    assert "tailscale serve" not in network_script
+    assert "tailscale funnel" not in network_script
+    assert "0.0.0.0" not in run_script  # noqa: S104 - no all-interface bind.
+    assert "Tailscale-IP health check" in installer
 
 
 def test_server_rejects_non_loopback_bind(tmp_path: Path) -> None:
     runner = load_runner()
 
-    with pytest.raises(ValueError, match="loopback"):
+    with pytest.raises(ValueError, match="loopback or a Tailscale"):
         runner.serve(tmp_path, tmp_path, "0.0.0.0", 8765)  # noqa: S104 - rejection test.
+
+
+def test_server_accepts_only_loopback_or_tailscale_addresses() -> None:
+    runner = load_runner()
+
+    assert runner.bind_host_is_private("127.0.0.1")
+    assert runner.bind_host_is_private("::1")
+    assert runner.bind_host_is_private("100.113.237.2")
+    assert not runner.bind_host_is_private("192.168.1.164")
+    assert not runner.bind_host_is_private("0.0.0.0")  # noqa: S104 - rejection test.

@@ -219,7 +219,8 @@ h2 {
   grid-template-columns: minmax(0, 2fr) minmax(250px, 0.8fr);
   grid-template-areas:
     "activity lead"
-    "activity news";
+    "activity news"
+    "activity delivery";
   gap: 1rem;
 }
 
@@ -233,6 +234,10 @@ h2 {
 
 .news-panel {
   grid-area: news;
+}
+
+.delivery-panel {
+  grid-area: delivery;
 }
 
 .panel {
@@ -382,6 +387,52 @@ td:first-child {
   text-decoration: underline;
 }
 
+.delivery-date {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.platform-status-list {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.platform-status-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.45rem;
+  background: var(--surface-muted);
+  font-weight: 700;
+}
+
+.platform-status {
+  display: grid;
+  place-items: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  border-radius: 50%;
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.platform-status.is-published {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.platform-status.is-missing {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .runner-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -485,6 +536,7 @@ footer {
     grid-template-areas:
       "activity"
       "news"
+      "delivery"
       "lead";
   }
 }

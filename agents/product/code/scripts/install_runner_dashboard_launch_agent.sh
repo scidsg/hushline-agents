@@ -16,6 +16,8 @@ fi
 TARGET_DIR="$APP_HOME/Library/LaunchAgents"
 TARGET_PLIST="$TARGET_DIR/$LABEL.plist"
 
+source "$SCRIPT_DIR/lib/runner-dashboard-network.sh"
+
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "Missing required command: $1" >&2
@@ -49,6 +51,13 @@ main() {
   require_cmd plutil
   require_cmd python3
   require_cmd sed
+  require_cmd tailscale
+
+  local dashboard_host=""
+  local dashboard_port="${HUSHLINE_RUNNER_DASHBOARD_PORT:-8765}"
+  local dashboard_url=""
+  dashboard_host="$(resolve_runner_dashboard_host)"
+  dashboard_url="http://$dashboard_host:$dashboard_port"
 
   mkdir -p "$TARGET_DIR"
   mkdir -p "$AGENTS_REPO_DIR/logs"
@@ -60,14 +69,14 @@ main() {
   launchctl enable "gui/$APP_UID/$LABEL"
 
   for _attempt in 1 2 3 4 5; do
-    if curl --fail --silent "http://127.0.0.1:8765/healthz" >/dev/null 2>&1; then
+    if curl --noproxy '*' --fail --silent "$dashboard_url/healthz" >/dev/null 2>&1; then
       break
     fi
     sleep 1
   done
 
-  if ! curl --fail --silent "http://127.0.0.1:8765/healthz" >/dev/null 2>&1; then
-    echo "Dashboard failed its local health check." >&2
+  if ! curl --noproxy '*' --fail --silent "$dashboard_url/healthz" >/dev/null 2>&1; then
+    echo "Dashboard failed its Tailscale-IP health check." >&2
     exit 1
   fi
 
@@ -82,14 +91,11 @@ Logs:
 - $AGENTS_REPO_DIR/logs/runner-dashboard.stdout.log
 - $AGENTS_REPO_DIR/logs/runner-dashboard.stderr.log
 
-Local dashboard:
-- http://127.0.0.1:8765/
-
-Private Tailscale HTTPS setup:
-- $AGENTS_REPO_DIR/agents/product/code/scripts/configure_runner_dashboard_tailscale.sh
+Tailnet dashboard:
+- $dashboard_url/
 
 This LaunchAgent runs continuously in the $APP_USER Aqua login session.
-Test with: curl --fail http://127.0.0.1:8765/healthz
+Test with: curl --noproxy '*' --fail $dashboard_url/healthz
 EOF
 }
 
