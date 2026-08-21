@@ -216,11 +216,11 @@ h2 {
 
 .content-grid {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(250px, 0.8fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   grid-template-areas:
-    "activity lead"
-    "activity news"
-    "activity delivery";
+    "activity activity activity"
+    "lead news delivery";
+  align-items: start;
   gap: 1rem;
 }
 

@@ -347,6 +347,8 @@ def test_dashboard_assets_are_hush_line_branded_and_dependency_free() -> None:
     assert "Success status" in html
     assert "#7d25c1" in css
     assert "Atkinson Hyperlegible" in css
+    assert '"activity activity activity"' in css
+    assert '"lead news delivery"' in css
     assert "https://" not in html
     assert "http://" not in html
     assert 'fetch("/api/dashboard"' in javascript
