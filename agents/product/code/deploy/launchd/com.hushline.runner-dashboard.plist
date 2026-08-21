@@ -8,7 +8,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>__REPO_DIR__/agents/product/code/scripts/open_runner_dashboard.sh</string>
+    <string>__REPO_DIR__/agents/product/code/scripts/run_runner_dashboard.sh</string>
   </array>
 
   <key>WorkingDirectory</key>
@@ -20,6 +20,8 @@
     <string>__HOME_DIR__</string>
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>HUSHLINE_RUNNER_DASHBOARD_PORT</key>
+    <string>8765</string>
   </dict>
 
   <key>LimitLoadToSessionType</key>
@@ -27,6 +29,15 @@
 
   <key>RunAtLoad</key>
   <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
 
   <key>StandardOutPath</key>
   <string>__REPO_DIR__/logs/runner-dashboard.stdout.log</string>

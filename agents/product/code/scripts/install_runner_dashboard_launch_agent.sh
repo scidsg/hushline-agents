@@ -44,8 +44,10 @@ render_plist() {
 
 main() {
   require_cmd dscl
+  require_cmd curl
   require_cmd launchctl
   require_cmd plutil
+  require_cmd python3
   require_cmd sed
 
   mkdir -p "$TARGET_DIR"
@@ -56,6 +58,18 @@ main() {
   launchctl bootout "gui/$APP_UID" "$TARGET_PLIST" >/dev/null 2>&1 || true
   launchctl bootstrap "gui/$APP_UID" "$TARGET_PLIST"
   launchctl enable "gui/$APP_UID/$LABEL"
+
+  for _attempt in 1 2 3 4 5; do
+    if curl --fail --silent "http://127.0.0.1:8765/healthz" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+
+  if ! curl --fail --silent "http://127.0.0.1:8765/healthz" >/dev/null 2>&1; then
+    echo "Dashboard failed its local health check." >&2
+    exit 1
+  fi
 
   cat <<EOF
 Installed launchd job:
@@ -68,8 +82,14 @@ Logs:
 - $AGENTS_REPO_DIR/logs/runner-dashboard.stdout.log
 - $AGENTS_REPO_DIR/logs/runner-dashboard.stderr.log
 
-This LaunchAgent runs when the $APP_USER Aqua login session starts after reboot.
-Test with: launchctl kickstart -k gui/$APP_UID/$LABEL
+Local dashboard:
+- http://127.0.0.1:8765/
+
+Private Tailscale HTTPS setup:
+- $AGENTS_REPO_DIR/agents/product/code/scripts/configure_runner_dashboard_tailscale.sh
+
+This LaunchAgent runs continuously in the $APP_USER Aqua login session.
+Test with: curl --fail http://127.0.0.1:8765/healthz
 EOF
 }
 
