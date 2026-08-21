@@ -34,6 +34,10 @@ The scheduled posting agents plan and publish through one launchd job per conten
 Direct manual runs do not apply randomized timing or weekly weekday selection unless
 `HUSHLINE_SOCIAL_RANDOMIZE_POST_WINDOW=1` is set.
 
+The whistleblower-news scan exits successfully without publishing when the approved
+source allowlist has no current eligible article. This is a healthy no-op, not a runner
+failure; source and copy-quality gates remain fail-closed for malformed or unsafe output.
+
 If the unused screenshot rotation contains only a blocked weekly category or saturated
 topic, the feature planner expands across older screenshots and chooses an otherwise
 eligible topic. Topic saturation and weekly caps remain enforced during that expansion.

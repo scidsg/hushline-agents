@@ -61,7 +61,8 @@ make test
   to Glenn. Its five-minute GUI LaunchAgent is installed explicitly, and separate Inbox
   and Sent cursors prevent historical messages from being executed.
 - The sales contact agent refuses to send unless `HUSHLINE_SALES_AGENT_FROM` is
-  exactly `sales@hushline.app`.
+  exactly `sales@hushline.app`. An exhausted eligible-candidate pool is reported as a
+  successful no-op rather than a runner failure.
 - Agent-authored product changes always require human review.
 
 ## License
