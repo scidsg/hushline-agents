@@ -216,10 +216,12 @@ h2 {
 
 .content-grid {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(250px, 0.8fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   grid-template-areas:
-    "activity lead"
-    "activity news";
+    "activity activity activity"
+    "lead news delivery"
+    "outbound outbound outbound";
+  align-items: stretch;
   gap: 1rem;
 }
 
@@ -233,6 +235,14 @@ h2 {
 
 .news-panel {
   grid-area: news;
+}
+
+.delivery-panel {
+  grid-area: delivery;
+}
+
+.outbound-panel {
+  grid-area: outbound;
 }
 
 .panel {
@@ -382,6 +392,111 @@ td:first-child {
   text-decoration: underline;
 }
 
+.delivery-date {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.platform-status-list {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.platform-status-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.45rem;
+  background: var(--surface-muted);
+  font-weight: 700;
+}
+
+.platform-status {
+  display: grid;
+  place-items: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  border-radius: 50%;
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.platform-status.is-published {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.platform-status.is-missing {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.outbound-content {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--surface-muted);
+}
+
+.outbound-success {
+  display: grid;
+  justify-items: center;
+  gap: 0.45rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.email-header {
+  display: grid;
+  gap: 0.5rem;
+  padding: 1rem 1.1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.email-field {
+  display: grid;
+  grid-template-columns: 5rem minmax(0, 1fr);
+  gap: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.email-label {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.email-body {
+  min-height: 12rem;
+  padding: 1.3rem 1.1rem;
+  background: var(--surface);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.outbound-check {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  background: var(--success-soft);
+  color: var(--success);
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
 .runner-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -485,7 +600,9 @@ footer {
     grid-template-areas:
       "activity"
       "news"
-      "lead";
+      "delivery"
+      "lead"
+      "outbound";
   }
 }
 
@@ -508,6 +625,15 @@ footer {
 
   .chart-legend {
     justify-content: flex-start;
+  }
+
+  .outbound-success {
+    justify-items: start;
+  }
+
+  .email-field {
+    grid-template-columns: 1fr;
+    gap: 0.1rem;
   }
 }
 

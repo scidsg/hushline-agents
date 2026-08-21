@@ -15,7 +15,7 @@ DASHBOARD_DIR = ROOT / "agents/product/code/dashboard"
 PLIST_PATH = ROOT / "agents/product/code/deploy/launchd/com.hushline.runner-dashboard.plist"
 INSTALLER_PATH = ROOT / "agents/product/code/scripts/install_runner_dashboard_launch_agent.sh"
 RUN_SCRIPT_PATH = ROOT / "agents/product/code/scripts/run_runner_dashboard.sh"
-TAILSCALE_SCRIPT_PATH = ROOT / "agents/product/code/scripts/configure_runner_dashboard_tailscale.sh"
+NETWORK_SCRIPT_PATH = ROOT / "agents/product/code/scripts/lib/runner-dashboard-network.sh"
 
 
 def load_runner() -> ModuleType:
@@ -169,6 +169,123 @@ def test_snapshot_contains_only_aggregate_sales_data(tmp_path: Path) -> None:
     assert "message" not in encoded.lower()
 
 
+def test_running_worker_remains_in_healthy_summary_count(tmp_path: Path) -> None:
+    runner = load_runner()
+
+    snapshot = runner.build_snapshot(
+        tmp_path,
+        tmp_path,
+        now=datetime(2026, 8, 21, 12, tzinfo=UTC),
+        launchctl_reader=lambda label: (
+            runner.LaunchctlSignal(True, "running", None, 3)
+            if label == "com.hushline.sales.lead-agent"
+            else runner.LaunchctlSignal(True, "idle", 0, 3)
+        ),
+    )
+
+    assert snapshot["summary"]["running"] == 1
+    assert snapshot["summary"]["healthy"] == snapshot["summary"]["total"]
+    assert snapshot["summary"]["failed"] == 0
+
+
+def test_last_outbound_sales_email_returns_latest_matching_email_preview(
+    tmp_path: Path,
+) -> None:
+    runner = load_runner()
+    drafts_dir = tmp_path / "drafts"
+    drafts_dir.mkdir()
+    draft_path = drafts_dir / "example.txt"
+    draft_path.write_text(
+        "From: sales@hushline.app\n"
+        "To: private@example.com\n"
+        "Recipient source: verified public page\n"
+        "Subject: A safer reporting channel\n"
+        "Target: example.com rank 1\n\n"
+        "Hello Example Company,\n\nThis is the original message body.",
+        encoding="utf-8",
+    )
+    state_path = tmp_path / "sales-contact-agent-state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "sent": [
+                    {
+                        "company_name": "Older Company",
+                        "subject": "Older subject",
+                        "sent_at": "2026-08-20T12:00:00+00:00",
+                    },
+                    {
+                        "company_name": "Example Company",
+                        "subject": "A safer reporting channel",
+                        "sent_at": "2026-08-21T15:30:00+00:00",
+                        "recipient": "private@example.com",
+                        "draft_path": str(draft_path),
+                    },
+                ],
+                "failed": [
+                    {
+                        "company_name": "Failed Company",
+                        "subject": "Failed subject",
+                        "failed_at": "2026-08-22T15:30:00+00:00",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.last_outbound_sales_email(state_path, drafts_dir=drafts_dir)
+
+    assert result == {
+        "available": True,
+        "company_name": "Example Company",
+        "sender": "sales@hushline.app",
+        "recipient": "private@example.com",
+        "subject": "A safer reporting channel",
+        "sent_at": "2026-08-21T15:30:00Z",
+        "body": "Hello Example Company,\n\nThis is the original message body.",
+    }
+
+
+def test_outbound_sales_email_does_not_read_draft_outside_allowed_directory(
+    tmp_path: Path,
+) -> None:
+    runner = load_runner()
+    drafts_dir = tmp_path / "drafts"
+    drafts_dir.mkdir()
+    outside_path = tmp_path / "outside.txt"
+    outside_path.write_text(
+        "From: sales@hushline.app\n"
+        "To: person@example.com\n"
+        "Subject: Subject\n\n"
+        "Must not be exposed.",
+        encoding="utf-8",
+    )
+    state_path = tmp_path / "state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "sent": [
+                    {
+                        "company_name": "Example",
+                        "recipient": "person@example.com",
+                        "subject": "Subject",
+                        "sent_at": "2026-08-21T15:30:00Z",
+                        "draft_path": str(outside_path),
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.last_outbound_sales_email(state_path, drafts_dir=drafts_dir)
+
+    assert result["available"] is True
+    assert result["body"] is None
+    assert "Must not be exposed" not in json.dumps(result)
+
+
 def write_news_archive(
     social_repo: Path,
     archive_date: str,
@@ -262,6 +379,60 @@ def test_last_news_post_ignores_unpublished_and_unsafe_archives(tmp_path: Path) 
     assert runner.last_news_post(social_repo) == {"available": False}
 
 
+def test_last_social_post_status_uses_newest_archive_and_valid_publication_receipts(
+    tmp_path: Path,
+) -> None:
+    runner = load_runner()
+    social_repo = tmp_path / "hushline-social"
+    older_archive = social_repo / "previous-posts" / "2026-08-20"
+    older_archive.mkdir(parents=True)
+    (older_archive / "post.json").write_text(
+        json.dumps({"planned_date": "2026-08-20"}), encoding="utf-8"
+    )
+    archive = social_repo / "previous-posts" / "2026-08-21"
+    archive.mkdir(parents=True)
+    (archive / "post.json").write_text(json.dumps({"planned_date": "2026-08-21"}), encoding="utf-8")
+    (archive / "linkedin-publication.json").write_text(
+        json.dumps(
+            {
+                "platform": "linkedin",
+                "planned_date": "2026-08-21",
+                "published_at": "2026-08-21T19:00:00Z",
+                "post_id": "urn:li:share:7496642425214611457",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (archive / "mastodon-publication.json").write_text(
+        json.dumps(
+            {
+                "platform": "mastodon",
+                "planned_date": "2026-08-21",
+                "published_at": "not-a-date",
+                "status_url": "https://mastodon.social/@hushlineapp/123",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (archive / "bluesky-publication.json").write_text(
+        json.dumps(
+            {
+                "platform": "bluesky",
+                "planned_date": "2026-08-20",
+                "published_at": "2026-08-21T19:00:00Z",
+                "post_url": "https://bsky.app/profile/hushline.app/post/abc",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert runner.last_social_post_status(social_repo) == {
+        "available": True,
+        "planned_date": "2026-08-21",
+        "platforms": {"linkedin": True, "mastodon": False, "bluesky": False},
+    }
+
+
 def test_dashboard_sends_strict_security_headers() -> None:
     runner = load_runner()
 
@@ -289,12 +460,21 @@ def test_dashboard_assets_are_hush_line_branded_and_dependency_free() -> None:
     assert "Hush Line" in html
     assert "Agent Operations" in html
     assert "Last news post" in html
+    assert "Last social post" in html
+    assert "Success status" in html
+    assert "Last successful outbound email" in html
     assert "#7d25c1" in css
     assert "Atkinson Hyperlegible" in css
+    assert '"activity activity activity"' in css
+    assert '"lead news delivery"' in css
+    assert '"outbound outbound outbound"' in css
+    assert "align-items: stretch" in css
     assert "https://" not in html
     assert "http://" not in html
     assert 'fetch("/api/dashboard"' in javascript
     assert "renderLastNewsPost" in javascript
+    assert "renderLastSocialPostStatus" in javascript
+    assert "renderLastOutboundSalesEmail" in javascript
     assert "smoothLinePath" in javascript
     assert 'svgElement("path"' in javascript
 
@@ -303,21 +483,45 @@ def test_launchd_and_tailscale_assets_keep_backend_private() -> None:
     plist = PLIST_PATH.read_text(encoding="utf-8")
     installer = INSTALLER_PATH.read_text(encoding="utf-8")
     run_script = RUN_SCRIPT_PATH.read_text(encoding="utf-8")
-    tailscale_script = TAILSCALE_SCRIPT_PATH.read_text(encoding="utf-8")
+    network_script = NETWORK_SCRIPT_PATH.read_text(encoding="utf-8")
 
     assert "run_runner_dashboard.sh" in plist
     assert "<key>KeepAlive</key>" in plist
-    assert "127.0.0.1" in run_script
-    assert "0.0.0.0" not in run_script  # noqa: S104 - assert loopback-only configuration.
-    assert "tailscale serve" in tailscale_script
-    assert "--https=" in tailscale_script
-    assert "tailscale funnel" not in tailscale_script
-    assert "127.0.0.1" in tailscale_script
-    assert "configure_runner_dashboard_tailscale.sh" in installer
+    assert "resolve_runner_dashboard_host" in run_script
+    assert '--host "127.0.0.1"' in run_script
+    assert '--host "$HOST"' in run_script
+    assert "tailscale ip -4" in network_script
+    assert "tailscale serve" not in network_script
+    assert "tailscale funnel" not in network_script
+    assert "0.0.0.0" not in run_script  # noqa: S104 - no all-interface bind.
+    assert "require_cmd lsof" in installer
+    assert "dashboard_sockets_ready" in installer
+    assert '"-iTCP@127.0.0.1:${dashboard_port}"' in installer
+    assert '"-iTCP@${dashboard_host}:${dashboard_port}"' in installer
+    assert "Test from another Tailnet device" in installer
 
 
 def test_server_rejects_non_loopback_bind(tmp_path: Path) -> None:
     runner = load_runner()
 
-    with pytest.raises(ValueError, match="loopback"):
+    with pytest.raises(ValueError, match="loopback or a Tailscale"):
         runner.serve(tmp_path, tmp_path, "0.0.0.0", 8765)  # noqa: S104 - rejection test.
+
+
+def test_server_accepts_only_loopback_or_tailscale_addresses() -> None:
+    runner = load_runner()
+
+    assert runner.bind_host_is_private("127.0.0.1")
+    assert runner.bind_host_is_private("::1")
+    assert runner.bind_host_is_private("100.113.237.2")
+    assert not runner.bind_host_is_private("192.168.1.164")
+    assert not runner.bind_host_is_private("0.0.0.0")  # noqa: S104 - rejection test.
+
+
+def test_dashboard_parser_accepts_loopback_and_tailscale_hosts() -> None:
+    runner = load_runner()
+
+    args = runner.parse_args(["--host", "127.0.0.1", "--host", "100.113.237.2", "--port", "8765"])
+
+    assert args.hosts == ["127.0.0.1", "100.113.237.2"]
+    assert args.port == 8765

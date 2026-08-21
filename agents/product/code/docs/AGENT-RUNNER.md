@@ -11,7 +11,7 @@ This document tracks the current state of the repo-managed agent automation used
 | `agents/product/reporting/scripts/weekly_hushline_code_agent_report_runner.py` | Weekly local agent reporting   | Active, local Mail.app delivery and local report persistence  | configured email recipient; local `logs/weekly-agent-reports/`    |
 | `agents/sales/scripts/sales_contact_agent.py` | Daily sales outreach from contact-form audit | Active when installed; Mail.app delivery gated by recipient-local 04:00-09:00 window | `sales@hushline.app`; local `logs/sales/` state and drafts |
 | `agents/product/code/scripts/agent_issue_bootstrap.sh` | Local runtime/bootstrap helper | Active, manual helper used by issue and local workflows       | local Docker/bootstrap only                                       |
-| `agents/product/code/scripts/runner_dashboard.py` | Private web operations dashboard | Active as a continuous GUI LaunchAgent after login | Aggregate runner, activity, lead, and news-publication metrics on loopback / Tailnet |
+| `agents/product/code/scripts/runner_dashboard.py` | Private web operations dashboard | Active as a continuous GUI LaunchAgent after login | Aggregate runner, activity, lead, and news-publication metrics on the node's Tailscale IP |
 
 Social runner scripts are managed under `agents/social/`. Docs jobs listed below are
 installed host context and should not be treated as repo-managed automation unless their
@@ -33,10 +33,16 @@ files are added under an explicit agent scope.
 
 The Hush Line-branded web dashboard shows current runner health, a 14-day activity
 chart, qualified-lead counts, the latest action outcome for each runner, and a
-`Last news post` widget. That widget reads the newest published archive under the sibling
+`Last news post` widget. A compact success card shows only a check or an X for the
+LinkedIn, Mastodon, and Bluesky receipts in the newest daily feature-post archive.
+The full-width outbound-sales card renders the latest successful send as an email preview,
+including its sender, recipient, company, subject, send time, and body. The body is read
+only from the matching local draft under `logs/sales/drafts/`; its path, recipient, and
+subject must match the confirmed send record before it can be displayed.
+The news widget reads the newest published archive under the sibling
 `hushline-social/previous-article-posts/` checkout and exposes only its date, source,
 headline, source link, and a public platform link. It does not expose social copy drafts,
-raw logs, prospect data, or message content.
+raw logs, or inbound prospect data.
 
 Install or refresh the continuous GUI LaunchAgent with:
 
@@ -45,22 +51,20 @@ Install or refresh the continuous GUI LaunchAgent with:
 ```
 
 The dashboard is installed in `~/Library/LaunchAgents/com.hushline.runner-dashboard.plist`
-and is available locally at `http://127.0.0.1:8765/`. Open it with:
+and is available to other Tailnet peers at `http://<tailscale-ip>:8765/`. Open that URL
+from a trusted device connected to the same Tailnet. On the runner Mac itself, use
+`http://127.0.0.1:8765/`: macOS does not reliably route a connection from a node back
+through its own Tailscale interface. The service therefore listens on the exact Tailscale
+IPv4 address for peers and on loopback for same-node access. It never binds to the LAN
+address or all interfaces.
 
-```bash
-./agents/product/code/scripts/open_runner_dashboard.sh
-```
-
-The backend binds only to loopback. Configure private Tailnet HTTPS access with:
-
-```bash
-./agents/product/code/scripts/configure_runner_dashboard_tailscale.sh
-```
-
-The dashboard does not enable Tailscale Funnel. The local server sends a restrictive
-Content Security Policy, disables caching and framing, and accepts only read-only HTTP
-routes. Because this is a per-user LaunchAgent, it starts after the user logs into the
-Aqua session rather than as a system daemon before login.
+The runner resolves `tailscale ip -4` at every start and binds to that exact address plus
+loopback for same-node access. It does not bind to the LAN or all interfaces, and it does
+not use Tailscale Serve or Funnel. Traffic between Tailnet peers remains inside Tailscale's encrypted tunnel; the
+dashboard itself uses HTTP on port `8765`. Tailnet access remains subject to Tailnet ACLs.
+The local server sends a restrictive Content Security Policy, disables caching and framing,
+and accepts only read-only HTTP routes. Because this is a per-user LaunchAgent, it starts
+after the user logs into the Aqua session rather than as a system daemon before login.
 
 ## Mail Command Agent
 

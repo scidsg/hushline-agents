@@ -95,7 +95,7 @@
             <div><dt>Total reviewed</dt><dd id="lead-total">—</dd></div>
           </dl>
           <p class="privacy-note">
-            Aggregate counts only. Prospect identities, message content, headers, and
+            Aggregate counts only. Inbound prospect identities, message content, headers, and
             fingerprints are never exposed here.
           </p>
         </article>
@@ -121,6 +121,65 @@
             </div>
           </div>
         </article>
+
+        <article class="panel delivery-panel" aria-labelledby="delivery-heading">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Last social post</p>
+              <h2 id="delivery-heading">Success status</h2>
+            </div>
+            <time id="delivery-date" class="delivery-date"></time>
+          </div>
+          <ul class="platform-status-list">
+            <li>
+              <span>LinkedIn</span>
+              <span id="delivery-linkedin" class="platform-status" role="img"></span>
+            </li>
+            <li>
+              <span>Mastodon</span>
+              <span id="delivery-mastodon" class="platform-status" role="img"></span>
+            </li>
+            <li>
+              <span>Bluesky</span>
+              <span id="delivery-bluesky" class="platform-status" role="img"></span>
+            </li>
+          </ul>
+        </article>
+
+        <article class="panel outbound-panel" aria-labelledby="outbound-heading">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Sales outreach</p>
+              <h2 id="outbound-heading">Last successful outbound email</h2>
+            </div>
+            <div class="outbound-success">
+              <span class="outbound-check" role="img" aria-label="Successfully sent">✓</span>
+              <time id="outbound-sent-at"></time>
+            </div>
+          </div>
+          <p id="outbound-empty" class="news-empty">No successful outbound email found.</p>
+          <div id="outbound-content" class="outbound-content" hidden>
+            <div class="email-header">
+              <div class="email-field">
+                <span class="email-label">From</span>
+                <span id="outbound-sender"></span>
+              </div>
+              <div class="email-field">
+                <span class="email-label">To</span>
+                <span id="outbound-recipient"></span>
+              </div>
+              <div class="email-field">
+                <span class="email-label">Company</span>
+                <span id="outbound-company"></span>
+              </div>
+              <div class="email-field">
+                <span class="email-label">Subject</span>
+                <strong id="outbound-subject"></strong>
+              </div>
+            </div>
+            <div id="outbound-body" class="email-body"></div>
+          </div>
+        </article>
       </section>
 
       <section class="panel runners-panel" aria-labelledby="runners-heading">
@@ -136,7 +195,7 @@
     </main>
 
     <footer>
-      <p>Private Hush Line operations surface · Loopback service · Tailnet access only</p>
+      <p>Private Hush Line operations surface · Tailscale IP · Tailnet access only</p>
     </footer>
   </body>
 </html>

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import os
 import re
@@ -26,9 +27,13 @@ DEFAULT_REFRESH_SECONDS = 15
 MAX_LOG_TAIL_BYTES = 2_000_000
 MAX_STATE_BYTES = 5_000_000
 MAX_NEWS_ARCHIVE_BYTES = 1_000_000
+MAX_OUTBOUND_DRAFT_BYTES = 100_000
 MAX_URL_LENGTH = 2_000
+MAX_PATH_LENGTH = 4_096
 MAX_PORT = 65_535
 PORT_ENV = "HUSHLINE_RUNNER_DASHBOARD_PORT"
+OUTBOUND_SALES_SENDER = "sales@hushline.app"
+TAILSCALE_IPV4_NETWORK = ipaddress.ip_network("100.64.0.0/10")
 
 DATE_RE = re.compile(r"(?P<date>20\d{2}-\d{2}-\d{2})")
 STATE_RE = re.compile(r"^\s*state = (?P<state>[a-z-]+)\s*$", re.MULTILINE)
@@ -49,6 +54,9 @@ ACTIVITY_RE = re.compile(
     re.IGNORECASE,
 )
 NEWS_ARCHIVE_DATE_RE = re.compile(r"^20\d{2}-\d{2}-\d{2}$")
+DAILY_ARCHIVE_KEY_RE = re.compile(
+    r"^(?P<planned_date>20\d{2}-\d{2}-\d{2})(?:-(?P<suffix>[1-9]\d*))?$"
+)
 LINKEDIN_POST_ID_RE = re.compile(r"^urn:li:(?:share|ugcPost):\d+$")
 NEWS_PLATFORM_LABELS = {
     "linkedin": "LinkedIn",
@@ -95,7 +103,7 @@ class HeaderWriter(Protocol):
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Serve the private Hush Line agent dashboard.")
-    parser.add_argument("--host", default=DEFAULT_HOST)
+    parser.add_argument("--host", action="append", dest="hosts")
     parser.add_argument("--port", type=int, default=int(os.environ.get(PORT_ENV, DEFAULT_PORT)))
     parser.add_argument("--repo-dir", type=Path, default=default_repo_dir())
     parser.add_argument("--home-dir", type=Path, default=Path.home())
@@ -338,6 +346,93 @@ def lead_metric_payload(
     }
 
 
+def outbound_draft_body(
+    value: object,
+    *,
+    drafts_dir: Path,
+    recipient: str,
+    subject: str,
+) -> str | None:
+    if not isinstance(value, str) or not value or len(value) > MAX_PATH_LENGTH:
+        return None
+    draft_path = Path(value)
+    if draft_path.is_symlink() or not draft_path.is_file():
+        return None
+    try:
+        allowed_root = drafts_dir.resolve(strict=True)
+        resolved_path = draft_path.resolve(strict=True)
+        if not resolved_path.is_relative_to(allowed_root):
+            return None
+        if resolved_path.stat().st_size > MAX_OUTBOUND_DRAFT_BYTES:
+            return None
+        draft = resolved_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return None
+    headers, separator, body = draft.partition("\n\n")
+    if not separator or not body.strip():
+        return None
+    header_values: dict[str, str] = {}
+    for line in headers.splitlines():
+        name, delimiter, header_value = line.partition(":")
+        if delimiter:
+            header_values[name.strip().lower()] = header_value.strip()
+    if (
+        header_values.get("from", "").lower() != OUTBOUND_SALES_SENDER
+        or header_values.get("to", "").lower() != recipient.lower()
+        or header_values.get("subject") != subject
+    ):
+        return None
+    return body.strip()[:MAX_OUTBOUND_DRAFT_BYTES]
+
+
+def last_outbound_sales_email(path: Path, *, drafts_dir: Path) -> dict[str, Any]:
+    unavailable = {"available": False}
+    if path.is_symlink() or not path.is_file():
+        return unavailable
+    try:
+        if path.stat().st_size > MAX_STATE_BYTES:
+            return unavailable
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return unavailable
+    if not isinstance(payload, dict) or not isinstance(payload.get("sent"), list):
+        return unavailable
+
+    candidates: list[tuple[datetime, dict[str, Any]]] = []
+    for entry in payload["sent"]:
+        if not isinstance(entry, dict):
+            continue
+        sent_at = parse_publication_time(entry.get("sent_at"))
+        company_name = bounded_text(entry, "company_name", limit=120)
+        recipient = bounded_text(entry, "recipient", limit=320)
+        subject = bounded_text(entry, "subject", limit=240)
+        if sent_at is None or company_name is None or recipient is None or subject is None:
+            continue
+        body = outbound_draft_body(
+            entry.get("draft_path"),
+            drafts_dir=drafts_dir,
+            recipient=recipient,
+            subject=subject,
+        )
+        candidates.append(
+            (
+                sent_at,
+                {
+                    "available": True,
+                    "company_name": company_name,
+                    "sender": OUTBOUND_SALES_SENDER,
+                    "recipient": recipient,
+                    "subject": subject,
+                    "sent_at": sent_at.isoformat().replace("+00:00", "Z"),
+                    "body": body,
+                },
+            )
+        )
+    if not candidates:
+        return unavailable
+    return max(candidates, key=lambda item: item[0])[1]
+
+
 def read_archive_json(path: Path) -> dict[str, Any] | None:
     if path.is_symlink() or not path.is_file():
         return None
@@ -457,6 +552,54 @@ def last_news_post(social_repo_dir: Path) -> dict[str, Any]:
     return max(candidates, key=lambda item: item[0])[1]
 
 
+def last_social_post_status(social_repo_dir: Path) -> dict[str, Any]:
+    empty_statuses = dict.fromkeys(NEWS_PLATFORM_LABELS, False)
+    unavailable = {"available": False, "planned_date": None, "platforms": empty_statuses}
+    archive_root = social_repo_dir / "previous-posts"
+    if archive_root.is_symlink() or not archive_root.is_dir():
+        return unavailable
+
+    candidates: list[tuple[date, int, Path, str]] = []
+    try:
+        archive_dirs = tuple(archive_root.iterdir())
+    except OSError:
+        return unavailable
+    for archive_dir in archive_dirs:
+        if archive_dir.is_symlink() or not archive_dir.is_dir():
+            continue
+        key_match = DAILY_ARCHIVE_KEY_RE.fullmatch(archive_dir.name)
+        if key_match is None:
+            continue
+        planned_date = key_match.group("planned_date")
+        if not isinstance(planned_date, str):
+            continue
+        post = read_archive_json(archive_dir / "post.json")
+        if post is None or bounded_text(post, "planned_date", limit=10) != planned_date:
+            continue
+        try:
+            parsed_date = date.fromisoformat(planned_date)
+        except ValueError:
+            continue
+        candidates.append(
+            (parsed_date, int(key_match.group("suffix") or 0), archive_dir, planned_date)
+        )
+
+    if not candidates:
+        return unavailable
+    _parsed_date, _suffix, archive_dir, planned_date = max(candidates)
+    statuses: dict[str, bool] = {}
+    for platform in NEWS_PLATFORM_LABELS:
+        receipt = read_archive_json(archive_dir / f"{platform}-publication.json")
+        statuses[platform] = bool(
+            receipt
+            and receipt.get("platform") == platform
+            and receipt.get("planned_date") == planned_date
+            and parse_publication_time(receipt.get("published_at")) is not None
+            and publication_link(platform, receipt) is not None
+        )
+    return {"available": True, "planned_date": planned_date, "platforms": statuses}
+
+
 def activity_series(
     specs: tuple[RunnerSpec, ...], *, today: date, days: int = DEFAULT_ACTIVITY_DAYS
 ) -> dict[str, Any]:
@@ -513,10 +656,16 @@ def build_snapshot(
     runners = [runner_status(spec, launchctl_reader) for spec in specs]
     activity = activity_series(specs, today=current.date())
     leads = lead_metrics(repo_dir / "logs/sales/lead-agent/state.json", today=current.date())
-    news_post = last_news_post(social_repo_dir or repo_dir.parent / "hushline-social")
+    outbound_email = last_outbound_sales_email(
+        repo_dir / "logs/sales/sales-contact-agent-state.json",
+        drafts_dir=repo_dir / "logs/sales/drafts",
+    )
+    social_repo = social_repo_dir or repo_dir.parent / "hushline-social"
+    news_post = last_news_post(social_repo)
+    social_post_status = last_social_post_status(social_repo)
     failed = sum(item["status"] == "failed" for item in runners)
     running = sum(item["status"] == "running" for item in runners)
-    healthy = sum(item["status"] == "healthy" for item in runners)
+    healthy = sum(item["status"] in {"healthy", "running"} for item in runners)
     paused = sum(item["status"] == "paused" for item in runners)
     activity_7d = sum(sum(series["values"][-7:]) for series in activity["series"])
     return {
@@ -534,12 +683,26 @@ def build_snapshot(
         "runners": runners,
         "activity": activity,
         "leads": leads,
+        "last_outbound_sales_email": outbound_email,
         "last_news_post": news_post,
+        "last_social_post_status": social_post_status,
     }
 
 
 def static_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "dashboard"
+
+
+def bind_host_is_private(host: str) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address.is_loopback or (
+        isinstance(address, ipaddress.IPv4Address) and address in TAILSCALE_IPV4_NETWORK
+    )
 
 
 def security_headers(handler: HeaderWriter, content_type: str) -> None:
@@ -620,25 +783,78 @@ def serve(
     *,
     social_repo_dir: Path | None = None,
 ) -> None:
-    if host not in {"127.0.0.1", "::1", "localhost"}:
-        raise ValueError("The dashboard must bind to a loopback address")
+    serve_hosts(repo_dir, home_dir, (host,), port, social_repo_dir=social_repo_dir)
+
+
+def serve_hosts(
+    repo_dir: Path,
+    home_dir: Path,
+    hosts: tuple[str, ...],
+    port: int,
+    *,
+    social_repo_dir: Path | None = None,
+) -> None:
+    unique_hosts = tuple(dict.fromkeys(hosts))
+    if not unique_hosts or any(not bind_host_is_private(host) for host in unique_hosts):
+        raise ValueError("The dashboard must bind to loopback or a Tailscale IPv4 address")
     if port < 1 or port > MAX_PORT:
         raise ValueError("Dashboard port must be between 1 and 65535")
-    server = ThreadingHTTPServer((host, port), make_handler(repo_dir, home_dir, social_repo_dir))
+    handler = make_handler(repo_dir, home_dir, social_repo_dir)
+    servers: list[ThreadingHTTPServer] = []
+    try:
+        for host in unique_hosts:
+            servers.append(ThreadingHTTPServer((host, port), handler))
+    except OSError:
+        for server in servers:
+            server.server_close()
+        raise
 
-    def stop_server(_signum: int, _frame: object) -> None:
-        threading.Thread(target=server.shutdown, daemon=True).start()
+    stopped = threading.Event()
+    stop_lock = threading.Lock()
 
-    signal.signal(signal.SIGTERM, stop_server)
-    signal.signal(signal.SIGINT, stop_server)
-    print(f"Hush Line agent dashboard listening on http://{host}:{port}", flush=True)
-    server.serve_forever(poll_interval=0.5)
+    def stop_servers() -> None:
+        with stop_lock:
+            if stopped.is_set():
+                return
+            for server in servers:
+                server.shutdown()
+            stopped.set()
+
+    def handle_signal(_signum: int, _frame: object) -> None:
+        threading.Thread(target=stop_servers, daemon=True).start()
+
+    signal.signal(signal.SIGTERM, handle_signal)
+    signal.signal(signal.SIGINT, handle_signal)
+    threads = [
+        threading.Thread(
+            target=server.serve_forever,
+            kwargs={"poll_interval": 0.5},
+            daemon=True,
+        )
+        for server in servers
+    ]
+    for host, thread in zip(unique_hosts, threads, strict=True):
+        thread.start()
+        print(f"Hush Line agent dashboard listening on http://{host}:{port}", flush=True)
+    try:
+        stopped.wait()
+    finally:
+        stop_servers()
+        for thread in threads:
+            thread.join(timeout=2)
+        for server in servers:
+            server.server_close()
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
     try:
-        serve(args.repo_dir.resolve(), args.home_dir.resolve(), args.host, args.port)
+        serve_hosts(
+            args.repo_dir.resolve(),
+            args.home_dir.resolve(),
+            tuple(args.hosts or (DEFAULT_HOST,)),
+            args.port,
+        )
     except (OSError, ValueError) as exc:
         print(f"runner-dashboard: {exc}", file=sys.stderr)
         return 1

@@ -202,8 +202,51 @@ function renderLastNewsPost(newsPost) {
   setExternalLink("news-article-link", newsPost.article_url, "Read source");
 }
 
+function renderLastSocialPostStatus(delivery) {
+  const platforms = delivery?.platforms || {};
+  const date = document.getElementById("delivery-date");
+  date.dateTime = delivery?.planned_date || "";
+  date.textContent = delivery?.planned_date || "Unavailable";
+  ["linkedin", "mastodon", "bluesky"].forEach((platform) => {
+    const element = document.getElementById(`delivery-${platform}`);
+    const published = platforms[platform] === true;
+    element.className = `platform-status ${published ? "is-published" : "is-missing"}`;
+    element.textContent = published ? "✓" : "×";
+    element.setAttribute(
+      "aria-label",
+      `${platform} ${published ? "published" : "not published"}`,
+    );
+  });
+}
+
+function renderLastOutboundSalesEmail(outboundEmail) {
+  const empty = document.getElementById("outbound-empty");
+  const content = document.getElementById("outbound-content");
+  const available = Boolean(outboundEmail && outboundEmail.available);
+  empty.hidden = available;
+  content.hidden = !available;
+  if (!available) return;
+
+  setText("outbound-sender", outboundEmail.sender);
+  setText("outbound-recipient", outboundEmail.recipient);
+  setText("outbound-company", outboundEmail.company_name);
+  setText("outbound-subject", outboundEmail.subject);
+  setText("outbound-body", outboundEmail.body || "Message body unavailable.");
+  const sentAt = document.getElementById("outbound-sent-at");
+  sentAt.dateTime = outboundEmail.sent_at;
+  sentAt.textContent = new Date(outboundEmail.sent_at).toLocaleString();
+}
+
 function renderDashboard(data) {
-  const { summary, leads, activity, runners, last_news_post: lastNewsPost } = data;
+  const {
+    summary,
+    leads,
+    activity,
+    runners,
+    last_news_post: lastNewsPost,
+    last_social_post_status: lastSocialPostStatus,
+    last_outbound_sales_email: lastOutboundSalesEmail,
+  } = data;
   setText("healthy-count", `${summary.healthy}/${summary.total}`);
   setText("healthy-detail", `${summary.running} running · ${summary.paused} paused`);
   setText("activity-count", summary.activity_7d);
@@ -227,6 +270,8 @@ function renderDashboard(data) {
   renderActivityTable(activity);
   renderRunners(runners);
   renderLastNewsPost(lastNewsPost);
+  renderLastSocialPostStatus(lastSocialPostStatus);
+  renderLastOutboundSalesEmail(lastOutboundSalesEmail);
   const updated = new Date(data.generated_at);
   setText("updated-at", `Updated ${updated.toLocaleString()}`);
   setText("refresh-status", `Live · refreshes every ${data.refresh_seconds}s`);
