@@ -413,6 +413,57 @@ def test_mail_export_refreshes_mail_before_scanning() -> None:
     )
 
 
+def test_mail_export_retries_transient_invalid_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = load_runner()
+    calls: list[list[str]] = []
+    delays: list[int] = []
+    results = [
+        subprocess.CompletedProcess(
+            ["osascript"],
+            1,
+            "",
+            "execution error: Mail got an error: Connection is invalid. (-609)",
+        ),
+        subprocess.CompletedProcess(["osascript"], 0, "", ""),
+    ]
+
+    def fake_run(command: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return results.pop(0)
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    monkeypatch.setattr(runner.time, "sleep", delays.append)
+
+    assert runner.fetch_candidates(60, None) == []
+    assert len(calls) == 2
+    assert delays == [runner.MAIL_SCAN_RETRY_DELAY_SECONDS]
+
+
+def test_mail_export_does_not_retry_nontransient_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = load_runner()
+    calls: list[list[str]] = []
+
+    def fake_run(command: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            "",
+            "execution error: Mail account is unavailable. (-1728)",
+        )
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+
+    with pytest.raises(runner.MailCommandAgentError, match="Mail.app scan failed"):
+        runner.fetch_candidates(60, None)
+
+    assert len(calls) == 1
+
+
 def test_launchd_template_checks_every_minute() -> None:
     plist = PLIST_PATH.read_text(encoding="utf-8")
 

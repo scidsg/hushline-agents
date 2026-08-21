@@ -49,7 +49,10 @@ Script: `agents/product/code/scripts/mail_command_agent.py`
 
 The optional mail command agent polls the native macOS Mail app every minute. Before each
 scan, it explicitly asks Mail to check for new messages and waits five seconds for Mail and
-the configured mail bridge to settle. It accepts two narrowly scoped command sources:
+the configured mail bridge to settle. If Mail reports the transient AppleEvent
+`Connection is invalid (-609)` failure, the runner waits one second and retries the same
+read-only mailbox scan once; other scan failures remain hard errors. It accepts two narrowly
+scoped command sources:
 
 - New Inbox messages whose visible and parsed `From` address is exactly
   `glenn@hushline.app`, whose `To` header includes `agent@hushline.app`, and whose first

@@ -31,6 +31,8 @@ MAX_BODY_CHARACTERS = 100_000
 MAX_REPLY_CHARACTERS = 20_000
 MAX_STATE_MESSAGES = 1_000
 CODEX_TIMEOUT_SECONDS = 4 * 60 * 60
+MAIL_SCAN_ATTEMPTS = 2
+MAIL_SCAN_RETRY_DELAY_SECONDS = 1
 
 STATE_DIR_ENV = "HUSHLINE_MAIL_COMMAND_AGENT_STATE_DIR"
 WORKSPACE_DIRS_ENV = "HUSHLINE_MAIL_COMMAND_AGENT_WORKSPACE_DIRS"
@@ -484,25 +486,33 @@ def fetch_candidates(
     )
     with tempfile.TemporaryDirectory(prefix="hushline-mail-agent-") as temp_dir_name:
         export_dir = Path(temp_dir_name)
-        result = subprocess.run(  # noqa: S603 - fixed executable and data-only arguments.
-            [
-                "/usr/bin/osascript",
-                "-",
-                AUTHORIZED_SENDER,
-                AGENT_ADDRESS,
-                str(bounded_inbox_lookback),
-                str(bounded_all_mail_lookback),
-                str(export_dir),
-            ],
-            input=MAIL_EXPORT_APPLESCRIPT,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=120,
-        )
-        if result.returncode != 0:
+        for attempt in range(1, MAIL_SCAN_ATTEMPTS + 1):
+            result = subprocess.run(  # noqa: S603 - fixed executable and data-only arguments.
+                [
+                    "/usr/bin/osascript",
+                    "-",
+                    AUTHORIZED_SENDER,
+                    AGENT_ADDRESS,
+                    str(bounded_inbox_lookback),
+                    str(bounded_all_mail_lookback),
+                    str(export_dir),
+                ],
+                input=MAIL_EXPORT_APPLESCRIPT,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=120,
+            )
+            if result.returncode == 0:
+                break
             detail = (result.stderr or result.stdout).strip() or "no Mail.app output"
-            raise MailCommandAgentError(f"Mail.app scan failed: {detail}")
+            if "(-609)" not in detail or attempt == MAIL_SCAN_ATTEMPTS:
+                raise MailCommandAgentError(f"Mail.app scan failed: {detail}")
+            print(
+                "Mail.app connection was invalid (-609); retrying mailbox scan once.",
+                file=sys.stderr,
+            )
+            time.sleep(MAIL_SCAN_RETRY_DELAY_SECONDS)
         exported_messages = [
             value.strip().partition("\t") for value in result.stdout.splitlines() if value.strip()
         ]
