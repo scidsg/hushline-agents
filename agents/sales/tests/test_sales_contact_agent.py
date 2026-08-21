@@ -325,7 +325,7 @@ def test_main_treats_exhausted_candidate_pool_as_successful_no_op(
     )
 
     assert result == 0
-    assert "No action required" in capsys.readouterr().out
+    assert "Sales contact scan completed: no action required" in capsys.readouterr().out
 
 
 def test_draft_is_specific_short_and_mentions_price(tmp_path: Path) -> None:

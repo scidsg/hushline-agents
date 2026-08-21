@@ -1206,7 +1206,7 @@ def main(argv: list[str] | None = None) -> int:
             research_timeout_seconds=args.research_timeout,
         )
     except NoSalesCandidateError as exc:
-        print(f"No action required: {exc}")
+        print(f"Sales contact scan completed: no action required. {exc}")
         return 0
     draft = build_draft(
         target,
