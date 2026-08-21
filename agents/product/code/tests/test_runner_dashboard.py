@@ -121,6 +121,21 @@ def test_successful_launchd_exit_wins_over_stale_stderr(tmp_path: Path) -> None:
     assert status["action"] == "Last action succeeded"
 
 
+def test_successful_launchd_exit_wins_over_trailing_start_log(tmp_path: Path) -> None:
+    runner = load_runner()
+    log_path = tmp_path / "agent.log"
+    write_log(log_path, "[2026-08-17 08:00:00 PDT] Starting agent.\n")
+    spec = runner.RunnerSpec("code", "Code", "Engineering", "example", "Daily", (log_path,))
+
+    status = runner.runner_status(
+        spec,
+        lambda _label: runner.LaunchctlSignal(True, "idle", 0, 9),
+    )
+
+    assert status["status"] == "healthy"
+    assert status["action"] == "Last action succeeded"
+
+
 def test_snapshot_contains_only_aggregate_sales_data(tmp_path: Path) -> None:
     runner = load_runner()
     state_path = tmp_path / "logs/sales/lead-agent/state.json"

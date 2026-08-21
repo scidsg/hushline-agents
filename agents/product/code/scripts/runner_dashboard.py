@@ -269,6 +269,9 @@ def runner_status(spec: RunnerSpec, launchctl_reader: LaunchctlReader) -> dict[s
     elif launchd.exit_code not in (None, 0):
         status = "failed"
         action = f"Last action failed (exit {launchd.exit_code})"
+    elif launchd.exit_code == 0:
+        status = "healthy"
+        action = "Last action succeeded"
     elif launchd.exit_code is None and logs.status == "failed":
         status = "failed"
         action = "Last action failed"
