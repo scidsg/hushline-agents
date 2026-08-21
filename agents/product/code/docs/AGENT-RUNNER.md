@@ -11,7 +11,7 @@ This document tracks the current state of the repo-managed agent automation used
 | `agents/product/reporting/scripts/weekly_hushline_code_agent_report_runner.py` | Weekly local agent reporting   | Active, local Mail.app delivery and local report persistence  | configured email recipient; local `logs/weekly-agent-reports/`    |
 | `agents/sales/scripts/sales_contact_agent.py` | Daily sales outreach from contact-form audit | Active when installed; Mail.app delivery gated by recipient-local 04:00-09:00 window | `sales@hushline.app`; local `logs/sales/` state and drafts |
 | `agents/product/code/scripts/agent_issue_bootstrap.sh` | Local runtime/bootstrap helper | Active, manual helper used by issue and local workflows       | local Docker/bootstrap only                                       |
-| `agents/product/code/scripts/open_runner_dashboard.sh` | Local runner dashboard         | Active as a GUI LaunchAgent at user login after reboot        | Terminal windows and local dashboard launch logs                  |
+| `agents/product/code/scripts/runner_dashboard.py` | Private web operations dashboard | Active as a continuous GUI LaunchAgent after login | Aggregate runner, activity, lead, and news-publication metrics on loopback / Tailnet |
 
 Social runner scripts are managed under `agents/social/`. Docs jobs listed below are
 installed host context and should not be treated as repo-managed automation unless their
@@ -26,22 +26,41 @@ files are added under an explicit agent scope.
 | com.hushline.social.hushline-feature-post-agent   | Hush Line feature screenshot post    | Daily, random publish target 4-9 AM       | com.hushline.social.hushline-feature-post-agent.plist   |
 | com.hushline.weekly-agent-report                  | Weekly local agent report            | Sunday at 10:30 PM                        | com.hushline.weekly-agent-report.plist                  |
 | com.hushline.social.hushline-verified-user-post-agent | Verified-user callout post       | Random weekday Mon-Fri, random publish target 4-9 AM | com.hushline.social.hushline-verified-user-post-agent.plist |
-| com.hushline.runner-dashboard                     | Local runner dashboard               | RunAtLoad in Aqua user session            | com.hushline.runner-dashboard.plist                     |
+| com.hushline.runner-dashboard                     | Private web operations dashboard     | Continuous after Aqua user login          | com.hushline.runner-dashboard.plist                     |
 | com.hushline.mail-command-agent                   | Authenticated Mail-to-Codex requests | Every 5 minutes                            | com.hushline.mail-command-agent.plist                   |
 
 ## Runner Dashboard
 
-Script: `agents/product/code/scripts/open_runner_dashboard.sh`
+The Hush Line-branded web dashboard shows current runner health, a 14-day activity
+chart, qualified-lead counts, the latest action outcome for each runner, and a
+`Last news post` widget. That widget reads the newest published archive under the sibling
+`hushline-social/previous-article-posts/` checkout and exposes only its date, source,
+headline, source link, and a public platform link. It does not expose social copy drafts,
+raw logs, prospect data, or message content.
 
-Install or refresh the GUI LaunchAgent with:
+Install or refresh the continuous GUI LaunchAgent with:
 
 ```bash
 ./agents/product/code/scripts/install_runner_dashboard_launch_agent.sh
 ```
 
-The dashboard is installed in `~/Library/LaunchAgents/com.hushline.runner-dashboard.plist`.
-Because it controls Terminal through AppleScript, it runs in the logged-in Aqua user session
-after reboot rather than as a system daemon before login.
+The dashboard is installed in `~/Library/LaunchAgents/com.hushline.runner-dashboard.plist`
+and is available locally at `http://127.0.0.1:8765/`. Open it with:
+
+```bash
+./agents/product/code/scripts/open_runner_dashboard.sh
+```
+
+The backend binds only to loopback. Configure private Tailnet HTTPS access with:
+
+```bash
+./agents/product/code/scripts/configure_runner_dashboard_tailscale.sh
+```
+
+The dashboard does not enable Tailscale Funnel. The local server sends a restrictive
+Content Security Policy, disables caching and framing, and accepts only read-only HTTP
+routes. Because this is a per-user LaunchAgent, it starts after the user logs into the
+Aqua session rather than as a system daemon before login.
 
 ## Mail Command Agent
 
@@ -472,12 +491,12 @@ Manual dry run:
 
 More detail lives in `docs/SALES-AGENT.md`.
 
-## Runner Dashboard Windows
+## Terminal Monitoring Layout
 
 Open the local runner monitoring layout:
 
 ```bash
-bash "$HOME/hushline-agents/scripts/open_runner_dashboard.sh"
+bash "$HOME/hushline-agents/agents/product/code/scripts/open_runner_terminal_layout.sh"
 ```
 
 The launcher opens six Terminal windows:
@@ -493,8 +512,8 @@ Use the `Social Live Log` window when manually running social commands; wrappers
 their live progress to the combined social log even when the LaunchAgent-specific stdout
 file is not being written by launchd.
 
-To restore this after reboot, add the launcher command to a macOS login item or a user
-LaunchAgent that runs after graphical login.
+This terminal layout is an optional manual view. The web dashboard described above is
+the supported continuous monitoring surface.
 
 Send report:
 

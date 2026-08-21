@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#7d25c1" />
+    <title>Hush Line Agent Operations</title>
+    <link rel="stylesheet" href="/dashboard.css" />
+    <script src="/dashboard.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to dashboard</a>
+    <header class="site-header">
+      <div class="header-content">
+        <div class="brand-lockup" aria-label="Hush Line Agent Operations">
+          <span class="brand-mark" aria-hidden="true">🤫</span>
+          <div>
+            <p class="eyebrow">Hush Line</p>
+            <h1>Agent Operations</h1>
+          </div>
+        </div>
+        <div class="live-state" role="status" aria-live="polite">
+          <span class="live-dot" aria-hidden="true"></span>
+          <span id="refresh-status">Connecting…</span>
+        </div>
+      </div>
+    </header>
+
+    <main id="main-content" class="dashboard-shell">
+      <section aria-labelledby="overview-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Current state</p>
+            <h2 id="overview-heading">Operations overview</h2>
+          </div>
+          <p id="updated-at" class="updated-at">Waiting for the first update</p>
+        </div>
+        <div id="alert-banner" class="alert-banner" role="alert" hidden></div>
+        <div class="metric-grid">
+          <article class="metric-card">
+            <p class="metric-label">Healthy runners</p>
+            <p class="metric-value" id="healthy-count">—</p>
+            <p class="metric-detail" id="healthy-detail">Loading runner state</p>
+          </article>
+          <article class="metric-card">
+            <p class="metric-label">Agent activity</p>
+            <p class="metric-value" id="activity-count">—</p>
+            <p class="metric-detail">events in the last 7 days</p>
+          </article>
+          <article class="metric-card">
+            <p class="metric-label">Qualified leads</p>
+            <p class="metric-value" id="qualified-count">—</p>
+            <p class="metric-detail">locally screened and delivered</p>
+          </article>
+          <article class="metric-card" id="failure-card">
+            <p class="metric-label">Failed actions</p>
+            <p class="metric-value" id="failure-count">—</p>
+            <p class="metric-detail">latest runner outcomes</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="content-grid" aria-label="Agent activity, sales pipeline, and news publishing">
+        <article class="panel activity-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">14-day trend</p>
+              <h2>Agent activity</h2>
+            </div>
+            <div id="chart-legend" class="chart-legend" aria-label="Chart legend"></div>
+          </div>
+          <div id="activity-chart" class="chart" role="img" aria-label="Agent activity line chart"></div>
+          <details class="chart-data">
+            <summary>View chart data</summary>
+            <div class="table-scroll">
+              <table id="activity-table">
+                <caption class="visually-hidden">Agent activity by date and team</caption>
+              </table>
+            </div>
+          </details>
+        </article>
+
+        <article class="panel lead-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Sales inbox</p>
+              <h2>Lead qualification</h2>
+            </div>
+          </div>
+          <dl class="lead-metrics">
+            <div><dt>Qualified</dt><dd id="lead-qualified">—</dd></div>
+            <div><dt>Screened out</dt><dd id="lead-screened">—</dd></div>
+            <div><dt>High-risk blocked</dt><dd id="lead-blocked">—</dd></div>
+            <div><dt>Total reviewed</dt><dd id="lead-total">—</dd></div>
+          </dl>
+          <p class="privacy-note">
+            Aggregate counts only. Prospect identities, message content, headers, and
+            fingerprints are never exposed here.
+          </p>
+        </article>
+
+        <article class="panel news-panel" aria-labelledby="news-heading">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Whistleblower news</p>
+              <h2 id="news-heading">Last news post</h2>
+            </div>
+          </div>
+          <p id="news-empty" class="news-empty">No published news archive found.</p>
+          <div id="news-content" hidden>
+            <p id="news-title" class="news-title"></p>
+            <p class="news-meta">
+              <span id="news-source"></span>
+              <span aria-hidden="true"> · </span>
+              <time id="news-date"></time>
+            </p>
+            <div class="news-links">
+              <a id="news-public-link" target="_blank" rel="noreferrer noopener"></a>
+              <a id="news-article-link" target="_blank" rel="noreferrer noopener">Read source</a>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel runners-panel" aria-labelledby="runners-heading">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">LaunchAgents</p>
+            <h2 id="runners-heading">Runner status</h2>
+          </div>
+          <p class="status-help">A red × means the latest action failed.</p>
+        </div>
+        <div id="runner-list" class="runner-list" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <footer>
+      <p>Private Hush Line operations surface · Loopback service · Tailnet access only</p>
+    </footer>
+  </body>
+</html>

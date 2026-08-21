@@ -290,17 +290,19 @@ def test_runner_dashboard_launchd_template_runs_dashboard_at_aqua_login() -> Non
     assert plist["Label"] == "com.hushline.runner-dashboard"
     assert plist["ProgramArguments"] == [
         "/bin/bash",
-        "__REPO_DIR__/agents/product/code/scripts/open_runner_dashboard.sh",
+        "__REPO_DIR__/agents/product/code/scripts/run_runner_dashboard.sh",
     ]
     assert plist["LimitLoadToSessionType"] == "Aqua"
     assert plist["RunAtLoad"] is True
+    assert plist["KeepAlive"] is True
+    assert plist["EnvironmentVariables"]["HUSHLINE_RUNNER_DASHBOARD_PORT"] == "8765"
     assert plist["EnvironmentVariables"]["HOME"] == "__HOME_DIR__"
     assert plist["StandardOutPath"] == "__REPO_DIR__/logs/runner-dashboard.stdout.log"
     assert plist["StandardErrorPath"] == "__REPO_DIR__/logs/runner-dashboard.stderr.log"
 
 
-def test_runner_dashboard_tails_social_logs_from_agents_repo() -> None:
-    script = (PRODUCT_CODE_AGENT_ROOT / "scripts" / "open_runner_dashboard.sh").read_text(
+def test_runner_terminal_layout_tails_social_logs_from_agents_repo() -> None:
+    script = (PRODUCT_CODE_AGENT_ROOT / "scripts" / "open_runner_terminal_layout.sh").read_text(
         encoding="utf-8"
     )
 
@@ -313,8 +315,8 @@ def test_runner_dashboard_tails_social_logs_from_agents_repo() -> None:
     assert "$HOME/hushline-social/logs/" not in script
 
 
-def test_runner_dashboard_uses_one_social_log_window() -> None:
-    script = (PRODUCT_CODE_AGENT_ROOT / "scripts" / "open_runner_dashboard.sh").read_text(
+def test_runner_terminal_layout_uses_one_social_log_window() -> None:
+    script = (PRODUCT_CODE_AGENT_ROOT / "scripts" / "open_runner_terminal_layout.sh").read_text(
         encoding="utf-8"
     )
 

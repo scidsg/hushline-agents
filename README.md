@@ -14,8 +14,8 @@ in their owning repositories.
 - `agents/`: all agent roles, operating instructions, scripts, tests, docs, and deploy
   templates owned by this repository.
 - `agents/product/code/`: Hush Line issue runner, authenticated Mail command agent,
-  bootstrap helper, log sanitizer, runner dashboard, code-agent policy, operations docs,
-  and tests.
+  bootstrap helper, log sanitizer, private Hush Line-branded operations dashboard,
+  code-agent policy, operations docs, and tests.
 - `agents/product/reporting/`: weekly local runner reporting script and tests.
 - `agents/social/`: social agent package, launchd wrappers, Node planners/publishers,
   templates, assets, docs, tests, and LaunchAgent/LaunchDaemon templates.
