@@ -51,6 +51,9 @@ ACTIVITY_RE = re.compile(
     re.IGNORECASE,
 )
 NEWS_ARCHIVE_DATE_RE = re.compile(r"^20\d{2}-\d{2}-\d{2}$")
+DAILY_ARCHIVE_KEY_RE = re.compile(
+    r"^(?P<planned_date>20\d{2}-\d{2}-\d{2})(?:-(?P<suffix>[1-9]\d*))?$"
+)
 LINKEDIN_POST_ID_RE = re.compile(r"^urn:li:(?:share|ugcPost):\d+$")
 NEWS_PLATFORM_LABELS = {
     "linkedin": "LinkedIn",
@@ -459,20 +462,52 @@ def last_news_post(social_repo_dir: Path) -> dict[str, Any]:
     return max(candidates, key=lambda item: item[0])[1]
 
 
-def previous_day_platform_status(social_repo_dir: Path, *, today: date) -> dict[str, Any]:
-    planned_date = (today - timedelta(days=1)).isoformat()
-    archive_dir = social_repo_dir / "previous-posts" / planned_date
-    platforms: dict[str, bool] = {}
+def last_social_post_status(social_repo_dir: Path) -> dict[str, Any]:
+    empty_statuses = dict.fromkeys(NEWS_PLATFORM_LABELS, False)
+    unavailable = {"available": False, "planned_date": None, "platforms": empty_statuses}
+    archive_root = social_repo_dir / "previous-posts"
+    if archive_root.is_symlink() or not archive_root.is_dir():
+        return unavailable
+
+    candidates: list[tuple[date, int, Path, str]] = []
+    try:
+        archive_dirs = tuple(archive_root.iterdir())
+    except OSError:
+        return unavailable
+    for archive_dir in archive_dirs:
+        if archive_dir.is_symlink() or not archive_dir.is_dir():
+            continue
+        key_match = DAILY_ARCHIVE_KEY_RE.fullmatch(archive_dir.name)
+        if key_match is None:
+            continue
+        planned_date = key_match.group("planned_date")
+        if not isinstance(planned_date, str):
+            continue
+        post = read_archive_json(archive_dir / "post.json")
+        if post is None or bounded_text(post, "planned_date", limit=10) != planned_date:
+            continue
+        try:
+            parsed_date = date.fromisoformat(planned_date)
+        except ValueError:
+            continue
+        candidates.append(
+            (parsed_date, int(key_match.group("suffix") or 0), archive_dir, planned_date)
+        )
+
+    if not candidates:
+        return unavailable
+    _parsed_date, _suffix, archive_dir, planned_date = max(candidates)
+    statuses: dict[str, bool] = {}
     for platform in NEWS_PLATFORM_LABELS:
         receipt = read_archive_json(archive_dir / f"{platform}-publication.json")
-        platforms[platform] = bool(
+        statuses[platform] = bool(
             receipt
             and receipt.get("platform") == platform
             and receipt.get("planned_date") == planned_date
             and parse_publication_time(receipt.get("published_at")) is not None
             and publication_link(platform, receipt) is not None
         )
-    return {"planned_date": planned_date, "platforms": platforms}
+    return {"available": True, "planned_date": planned_date, "platforms": statuses}
 
 
 def activity_series(
@@ -533,9 +568,7 @@ def build_snapshot(
     leads = lead_metrics(repo_dir / "logs/sales/lead-agent/state.json", today=current.date())
     social_repo = social_repo_dir or repo_dir.parent / "hushline-social"
     news_post = last_news_post(social_repo)
-    previous_day_status = previous_day_platform_status(
-        social_repo, today=current.astimezone().date()
-    )
+    social_post_status = last_social_post_status(social_repo)
     failed = sum(item["status"] == "failed" for item in runners)
     running = sum(item["status"] == "running" for item in runners)
     healthy = sum(item["status"] == "healthy" for item in runners)
@@ -557,7 +590,7 @@ def build_snapshot(
         "activity": activity,
         "leads": leads,
         "last_news_post": news_post,
-        "previous_day_post_status": previous_day_status,
+        "last_social_post_status": social_post_status,
     }
 
 

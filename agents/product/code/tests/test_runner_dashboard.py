@@ -262,19 +262,25 @@ def test_last_news_post_ignores_unpublished_and_unsafe_archives(tmp_path: Path) 
     assert runner.last_news_post(social_repo) == {"available": False}
 
 
-def test_previous_day_platform_status_requires_valid_publication_receipts(
+def test_last_social_post_status_uses_newest_archive_and_valid_publication_receipts(
     tmp_path: Path,
 ) -> None:
     runner = load_runner()
     social_repo = tmp_path / "hushline-social"
-    archive = social_repo / "previous-posts" / "2026-08-20"
+    older_archive = social_repo / "previous-posts" / "2026-08-20"
+    older_archive.mkdir(parents=True)
+    (older_archive / "post.json").write_text(
+        json.dumps({"planned_date": "2026-08-20"}), encoding="utf-8"
+    )
+    archive = social_repo / "previous-posts" / "2026-08-21"
     archive.mkdir(parents=True)
+    (archive / "post.json").write_text(json.dumps({"planned_date": "2026-08-21"}), encoding="utf-8")
     (archive / "linkedin-publication.json").write_text(
         json.dumps(
             {
                 "platform": "linkedin",
-                "planned_date": "2026-08-20",
-                "published_at": "2026-08-20T19:00:00Z",
+                "planned_date": "2026-08-21",
+                "published_at": "2026-08-21T19:00:00Z",
                 "post_id": "urn:li:share:7496642425214611457",
             }
         ),
@@ -284,7 +290,7 @@ def test_previous_day_platform_status_requires_valid_publication_receipts(
         json.dumps(
             {
                 "platform": "mastodon",
-                "planned_date": "2026-08-20",
+                "planned_date": "2026-08-21",
                 "published_at": "not-a-date",
                 "status_url": "https://mastodon.social/@hushlineapp/123",
             }
@@ -295,16 +301,17 @@ def test_previous_day_platform_status_requires_valid_publication_receipts(
         json.dumps(
             {
                 "platform": "bluesky",
-                "planned_date": "2026-08-19",
-                "published_at": "2026-08-20T19:00:00Z",
+                "planned_date": "2026-08-20",
+                "published_at": "2026-08-21T19:00:00Z",
                 "post_url": "https://bsky.app/profile/hushline.app/post/abc",
             }
         ),
         encoding="utf-8",
     )
 
-    assert runner.previous_day_platform_status(social_repo, today=date(2026, 8, 21)) == {
-        "planned_date": "2026-08-20",
+    assert runner.last_social_post_status(social_repo) == {
+        "available": True,
+        "planned_date": "2026-08-21",
         "platforms": {"linkedin": True, "mastodon": False, "bluesky": False},
     }
 
@@ -336,14 +343,15 @@ def test_dashboard_assets_are_hush_line_branded_and_dependency_free() -> None:
     assert "Hush Line" in html
     assert "Agent Operations" in html
     assert "Last news post" in html
-    assert "Platform delivery" in html
+    assert "Last social post" in html
+    assert "Success status" in html
     assert "#7d25c1" in css
     assert "Atkinson Hyperlegible" in css
     assert "https://" not in html
     assert "http://" not in html
     assert 'fetch("/api/dashboard"' in javascript
     assert "renderLastNewsPost" in javascript
-    assert "renderPreviousDayStatus" in javascript
+    assert "renderLastSocialPostStatus" in javascript
     assert "smoothLinePath" in javascript
     assert 'svgElement("path"' in javascript
 

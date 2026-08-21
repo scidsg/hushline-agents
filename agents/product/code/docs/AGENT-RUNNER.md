@@ -33,8 +33,8 @@ files are added under an explicit agent scope.
 
 The Hush Line-branded web dashboard shows current runner health, a 14-day activity
 chart, qualified-lead counts, the latest action outcome for each runner, and a
-`Last news post` widget. A compact previous-day delivery card shows only a check or an X
-for the LinkedIn, Mastodon, and Bluesky receipts in the prior day's daily feature archive.
+`Last news post` widget. A compact success card shows only a check or an X for the
+LinkedIn, Mastodon, and Bluesky receipts in the newest daily feature-post archive.
 The news widget reads the newest published archive under the sibling
 `hushline-social/previous-article-posts/` checkout and exposes only its date, source,
 headline, source link, and a public platform link. It does not expose social copy drafts,

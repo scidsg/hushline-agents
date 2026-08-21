@@ -202,7 +202,7 @@ function renderLastNewsPost(newsPost) {
   setExternalLink("news-article-link", newsPost.article_url, "Read source");
 }
 
-function renderPreviousDayStatus(delivery) {
+function renderLastSocialPostStatus(delivery) {
   const platforms = delivery?.platforms || {};
   const date = document.getElementById("delivery-date");
   date.dateTime = delivery?.planned_date || "";
@@ -226,7 +226,7 @@ function renderDashboard(data) {
     activity,
     runners,
     last_news_post: lastNewsPost,
-    previous_day_post_status: previousDayPostStatus,
+    last_social_post_status: lastSocialPostStatus,
   } = data;
   setText("healthy-count", `${summary.healthy}/${summary.total}`);
   setText("healthy-detail", `${summary.running} running · ${summary.paused} paused`);
@@ -251,7 +251,7 @@ function renderDashboard(data) {
   renderActivityTable(activity);
   renderRunners(runners);
   renderLastNewsPost(lastNewsPost);
-  renderPreviousDayStatus(previousDayPostStatus);
+  renderLastSocialPostStatus(lastSocialPostStatus);
   const updated = new Date(data.generated_at);
   setText("updated-at", `Updated ${updated.toLocaleString()}`);
   setText("refresh-status", `Live · refreshes every ${data.refresh_seconds}s`);
