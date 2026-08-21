@@ -27,7 +27,7 @@ files are added under an explicit agent scope.
 | com.hushline.weekly-agent-report                  | Weekly local agent report            | Sunday at 10:30 PM                        | com.hushline.weekly-agent-report.plist                  |
 | com.hushline.social.hushline-verified-user-post-agent | Verified-user callout post       | Random weekday Mon-Fri, random publish target 4-9 AM | com.hushline.social.hushline-verified-user-post-agent.plist |
 | com.hushline.runner-dashboard                     | Local runner dashboard               | RunAtLoad in Aqua user session            | com.hushline.runner-dashboard.plist                     |
-| com.hushline.mail-command-agent                   | Authenticated Mail-to-Codex requests | Every 5 minutes                            | com.hushline.mail-command-agent.plist                   |
+| com.hushline.mail-command-agent                   | Authenticated Mail-to-Codex requests | Every minute                               | com.hushline.mail-command-agent.plist                   |
 
 ## Runner Dashboard
 
@@ -47,18 +47,23 @@ after reboot rather than as a system daemon before login.
 
 Script: `agents/product/code/scripts/mail_command_agent.py`
 
-The optional mail command agent polls the native macOS Mail app every five minutes. It
-accepts two narrowly scoped command sources:
+The optional mail command agent polls the native macOS Mail app every minute. Before each
+scan, it explicitly asks Mail to check for new messages and waits five seconds for Mail and
+the configured mail bridge to settle. If Mail reports the transient AppleEvent
+`Connection is invalid (-609)` failure, the runner waits one second and retries the same
+read-only mailbox scan once; other scan failures remain hard errors. It accepts two narrowly
+scoped command sources:
 
 - New Inbox messages whose visible and parsed `From` address is exactly
   `glenn@hushline.app`, whose `To` header includes `agent@hushline.app`, and whose first
   `Authentication-Results` header records aligned DKIM and DMARC passes for
   `hushline.app`.
-- New messages in the `Sent` mailbox of the Mail account that owns
+- New messages in the `All Mail` mailbox of the Mail account that owns
   `agent@hushline.app`, with the same exact parsed `From` and `To` requirements. This is
   the same-account Proton path: a message sent between two addresses in one Proton
-  mailbox can appear only in Sent and does not receive external-delivery DKIM or DMARC
-  headers. No other local mailbox is trusted for this exception.
+  mailbox can appear only in All Mail and may not receive external-delivery DKIM or DMARC
+  headers. The message must instead contain exactly one Proton internal-origin marker;
+  external or ambiguous origin markers are rejected.
 
 A matching Inbox address without the required authentication results is rejected and
 never passed to Codex. Attachments are not passed to Codex.
@@ -70,7 +75,10 @@ repository directories are the only additional writable roots. Repository `AGENT
 files remain authoritative. Codex can complete a clear request, ask a concise clarifying
 question, or report that it is blocked. The wrapper sends the final response from
 `agent@hushline.app` only to `glenn@hushline.app`; the model is instructed not to send
-mail itself.
+mail itself. Responses use Mail's native reply action, place the agent response in the
+reply body above Mail's normal quoted original, and retain standard reply-thread headers.
+Before sending, the wrapper refuses an empty body and verifies that the native reply has
+exactly one recipient—`glenn@hushline.app`—with no CC or BCC recipients.
 
 The local state file stores only a SHA-256 digest of each processed `Message-ID`, status,
 timestamps, and a non-sensitive result label. Subjects and bodies are not logged. The
@@ -87,11 +95,11 @@ Install or refresh the logged-in user's LaunchAgent:
 Installation verifies that Mail.app can send from `agent@hushline.app`, verifies Codex
 authentication, copies the executable to a private application-support directory,
 initializes the cursor at the current time, and loads the job. Existing email is therefore
-never interpreted as a new command. When an existing installation first gains Sent-mailbox
-support, the runner establishes a separate Sent cursor before scanning it, so historical
-sent messages are not executed. Reinstalling preserves existing cursors so mail that arrived
-since the prior poll is not skipped. The Aqua user session is required because the runner
-uses Mail.app automation.
+never interpreted as a new command. When an existing installation first gains All Mail
+support, the runner migrates the prior Sent cursor when available; otherwise it establishes
+a separate All Mail cursor before scanning, so historical messages are not executed.
+Reinstalling preserves existing cursors so mail that arrived since the prior poll is not
+skipped. The Aqua user session is required because the runner uses Mail.app automation.
 
 Operational checks:
 

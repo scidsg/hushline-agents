@@ -59,9 +59,9 @@ usage() {
 Usage:
   ./agents/product/code/scripts/install_mail_command_agent_launch_agent.sh
 
-Installs a GUI LaunchAgent that checks Mail.app every five minutes for authenticated
-messages from glenn@hushline.app addressed to agent@hushline.app. Existing messages are
-baselined during installation and are never treated as new commands.
+Installs a GUI LaunchAgent that refreshes and checks Mail.app every minute for
+authenticated messages from glenn@hushline.app addressed to agent@hushline.app. Existing
+messages are baselined during installation and are never treated as new commands.
 EOF
 }
 
@@ -105,7 +105,7 @@ launchctl enable "gui/$APP_UID/com.hushline.mail-command-agent"
 cat <<EOF
 Installed launchd job:
 - label: com.hushline.mail-command-agent
-- schedule: every 5 minutes
+- schedule: every minute
 - authorized sender: glenn@hushline.app
 - agent address: agent@hushline.app
 - executable: $INSTALL_DIR/mail_command_agent.py

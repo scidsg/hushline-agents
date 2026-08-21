@@ -31,6 +31,8 @@ MAX_BODY_CHARACTERS = 100_000
 MAX_REPLY_CHARACTERS = 20_000
 MAX_STATE_MESSAGES = 1_000
 CODEX_TIMEOUT_SECONDS = 4 * 60 * 60
+MAIL_SCAN_ATTEMPTS = 2
+MAIL_SCAN_RETRY_DELAY_SECONDS = 1
 
 STATE_DIR_ENV = "HUSHLINE_MAIL_COMMAND_AGENT_STATE_DIR"
 WORKSPACE_DIRS_ENV = "HUSHLINE_MAIL_COMMAND_AGENT_WORKSPACE_DIRS"
@@ -54,10 +56,13 @@ on run argv
   set allowedSender to item 1 of argv
   set targetRecipient to item 2 of argv
   set inboxLookbackSeconds to (item 3 of argv) as integer
-  set sentLookbackSeconds to (item 4 of argv) as integer
+  set allMailLookbackSeconds to (item 4 of argv) as integer
   set exportDirectory to item 5 of argv
   set inboxCutoffDate to (current date) - inboxLookbackSeconds
   set exportedIds to {}
+
+  tell application "Mail" to check for new mail
+  delay 5
 
   tell application "Mail"
     set recentMessages to every message of inbox whose date received is greater than inboxCutoffDate
@@ -101,15 +106,16 @@ on run argv
       end if
     end repeat
 
-    if sentLookbackSeconds is greater than 0 then
-      set sentCutoffDate to (current date) - sentLookbackSeconds
+    if allMailLookbackSeconds is greater than 0 then
+      set allMailCutoffDate to (current date) - allMailLookbackSeconds
       repeat with mailAccount in every account
         set accountAddresses to email addresses of mailAccount
         if accountAddresses contains targetRecipient then
           try
-            set sentMailbox to mailbox "Sent" of mailAccount
-            set recentSentMessages to every message of sentMailbox whose date sent > sentCutoffDate
-            repeat with mailMessage in recentSentMessages
+            set allMailMailbox to mailbox "All Mail" of mailAccount
+            set recentAllMailMessages to every message of allMailMailbox ¬
+              whose date sent > allMailCutoffDate
+            repeat with mailMessage in recentAllMailMessages
               set senderText to ""
               try
                 set senderText to sender of mailMessage as text
@@ -131,7 +137,7 @@ on run argv
 
               if senderMatched and recipientMatched then
                 set internalId to id of mailMessage as text
-                set exportId to "sent-" & internalId
+                set exportId to "all_mail-" & internalId
                 set rawSource to source of mailMessage as text
                 set headerText to rawSource
                 set headerDivider to return & linefeed & return & linefeed
@@ -145,7 +151,7 @@ on run argv
                 end try
                 my writeUtf8(headerText, exportDirectory & "/" & exportId & ".headers")
                 my writeUtf8(bodyText, exportDirectory & "/" & exportId & ".body")
-                set end of exportedIds to "sent" & tab & internalId
+                set end of exportedIds to "all_mail" & tab & internalId
               end if
             end repeat
           end try
@@ -166,9 +172,14 @@ MAIL_SEND_APPLESCRIPT = r"""
 on run argv
   set fromAddress to item 1 of argv
   set toAddress to item 2 of argv
-  set messageSubject to item 3 of argv
-  set bodyPath to item 4 of argv
+  set mailboxSource to item 3 of argv
+  set targetLocalID to item 4 of argv as integer
+  set bodyPath to item 5 of argv
   set messageBody to read POSIX file bodyPath as «class utf8»
+
+  if length of messageBody is 0 then
+    error "Refusing to send an empty agent response"
+  end if
 
   tell application "Mail"
     set matchingAccount to missing value
@@ -182,15 +193,59 @@ on run argv
       error "Mail account not found for " & fromAddress
     end if
 
-    set responseMessage to make new outgoing message
-    set subject of responseMessage to messageSubject
-    set content of responseMessage to messageBody
-    set visible of responseMessage to false
-    tell responseMessage
-      set sender to fromAddress
-      make new to recipient at end of to recipients with properties {address:toAddress}
-      send
-    end tell
+    if mailboxSource is "all_mail" then
+      set sourceMailbox to mailbox "All Mail" of matchingAccount
+    else if mailboxSource is "inbox" then
+      try
+        set sourceMailbox to mailbox "INBOX" of matchingAccount
+      on error
+        set sourceMailbox to mailbox "Inbox" of matchingAccount
+      end try
+    else
+      error "Unsupported Mail source for native reply"
+    end if
+
+    set sourceMessage to missing value
+    repeat with mailMessage in every message of sourceMailbox
+      if id of mailMessage is targetLocalID then
+        set sourceMessage to mailMessage
+        exit repeat
+      end if
+    end repeat
+    if sourceMessage is missing value then
+      error "Source message is no longer available for native reply"
+    end if
+
+    set responseMessage to missing value
+    try
+      set responseMessage to reply sourceMessage opening window false
+      set content of responseMessage to messageBody
+      set sender of responseMessage to fromAddress
+
+      if (count of to recipients of responseMessage) is not 1 then
+        error "Native reply has an unexpected recipient count"
+      end if
+      ignoring case
+        if address of item 1 of to recipients of responseMessage is not toAddress then
+          error "Native reply recipient does not match the authorized sender"
+        end if
+      end ignoring
+      if (count of cc recipients of responseMessage) is not 0 then
+        error "Native reply unexpectedly includes a CC recipient"
+      end if
+      if (count of bcc recipients of responseMessage) is not 0 then
+        error "Native reply unexpectedly includes a BCC recipient"
+      end if
+
+      tell responseMessage to send
+    on error deliveryErrorMessage number deliveryErrorNumber
+      if responseMessage is not missing value then
+        try
+          close responseMessage saving no
+        end try
+      end if
+      error deliveryErrorMessage number deliveryErrorNumber
+    end try
   end tell
 end run
 """
@@ -363,6 +418,11 @@ def authentication_result_is_valid(headers: EmailMessage) -> bool:
     return dkim_passed and dmarc_passed
 
 
+def proton_internal_origin_is_valid(headers: EmailMessage) -> bool:
+    origins = [str(value).strip().lower() for value in headers.get_all("X-Pm-Origin", [])]
+    return origins == ["internal"]
+
+
 def validate_headers(headers: EmailMessage) -> tuple[bool, str]:
     return validate_candidate_headers(headers, "inbox")
 
@@ -377,8 +437,12 @@ def validate_candidate_headers(headers: EmailMessage, mailbox_source: str) -> tu
     message_id = str(headers.get("Message-ID", "")).strip()
     if not message_id:
         return False, "missing_message_id"
-    if mailbox_source == "sent":
-        return True, "trusted_sent_copy"
+    if mailbox_source == "all_mail":
+        if authentication_result_is_valid(headers):
+            return True, "authenticated"
+        if proton_internal_origin_is_valid(headers):
+            return True, "trusted_proton_internal"
+        return False, "authentication_failed"
     if mailbox_source != "inbox":
         return False, "invalid_mailbox_source"
     if not authentication_result_is_valid(headers):
@@ -412,40 +476,48 @@ def parse_candidate(export_dir: Path, mailbox_source: str, internal_id: str) -> 
 
 
 def fetch_candidates(
-    inbox_lookback_seconds: int, sent_lookback_seconds: int | None
+    inbox_lookback_seconds: int, all_mail_lookback_seconds: int | None
 ) -> list[CandidateMessage]:
     bounded_inbox_lookback = max(1, min(inbox_lookback_seconds, MAX_LOOKBACK_SECONDS))
-    bounded_sent_lookback = (
+    bounded_all_mail_lookback = (
         0
-        if sent_lookback_seconds is None
-        else max(1, min(sent_lookback_seconds, MAX_LOOKBACK_SECONDS))
+        if all_mail_lookback_seconds is None
+        else max(1, min(all_mail_lookback_seconds, MAX_LOOKBACK_SECONDS))
     )
     with tempfile.TemporaryDirectory(prefix="hushline-mail-agent-") as temp_dir_name:
         export_dir = Path(temp_dir_name)
-        result = subprocess.run(  # noqa: S603 - fixed executable and data-only arguments.
-            [
-                "/usr/bin/osascript",
-                "-",
-                AUTHORIZED_SENDER,
-                AGENT_ADDRESS,
-                str(bounded_inbox_lookback),
-                str(bounded_sent_lookback),
-                str(export_dir),
-            ],
-            input=MAIL_EXPORT_APPLESCRIPT,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=120,
-        )
-        if result.returncode != 0:
+        for attempt in range(1, MAIL_SCAN_ATTEMPTS + 1):
+            result = subprocess.run(  # noqa: S603 - fixed executable and data-only arguments.
+                [
+                    "/usr/bin/osascript",
+                    "-",
+                    AUTHORIZED_SENDER,
+                    AGENT_ADDRESS,
+                    str(bounded_inbox_lookback),
+                    str(bounded_all_mail_lookback),
+                    str(export_dir),
+                ],
+                input=MAIL_EXPORT_APPLESCRIPT,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=120,
+            )
+            if result.returncode == 0:
+                break
             detail = (result.stderr or result.stdout).strip() or "no Mail.app output"
-            raise MailCommandAgentError(f"Mail.app scan failed: {detail}")
+            if "(-609)" not in detail or attempt == MAIL_SCAN_ATTEMPTS:
+                raise MailCommandAgentError(f"Mail.app scan failed: {detail}")
+            print(
+                "Mail.app connection was invalid (-609); retrying mailbox scan once.",
+                file=sys.stderr,
+            )
+            time.sleep(MAIL_SCAN_RETRY_DELAY_SECONDS)
         exported_messages = [
             value.strip().partition("\t") for value in result.stdout.splitlines() if value.strip()
         ]
         if any(
-            not separator or mailbox_source not in {"inbox", "sent"}
+            not separator or mailbox_source not in {"inbox", "all_mail"}
             for mailbox_source, separator, _internal_id in exported_messages
         ):
             raise MailCommandAgentError("Mail.app returned an invalid candidate identifier.")
@@ -460,12 +532,9 @@ def fetch_candidates(
 def build_prompt(message: CandidateMessage, workspace_dirs: list[Path]) -> str:
     workspace_lines = "\n".join(f"- {path}" for path in workspace_dirs)
     authentication_summary = (
-        "aligned DKIM and DMARC passed for hushline.app"
-        if message.mailbox_source == "inbox"
-        else (
-            "exact From and To identities matched in the agent account's Sent mailbox; "
-            "same-account Proton messages do not receive external-delivery authentication headers"
-        )
+        "Proton marked the exact-address message as internally originated"
+        if message.mailbox_source == "all_mail" and proton_internal_origin_is_valid(message.headers)
+        else "aligned DKIM and DMARC passed for hushline.app"
     )
     return f"""You are Hush Line's local Mail command agent.
 
@@ -589,14 +658,9 @@ def run_codex(
     return parse_codex_response(response_path)
 
 
-def reply_subject(original_subject: str) -> str:
-    normalized = " ".join(original_subject.replace("\r", " ").replace("\n", " ").split())
-    if not normalized.lower().startswith("re:"):
-        normalized = f"Re: {normalized}"
-    return normalized[:998]
-
-
-def send_reply(subject: str, body: str) -> None:
+def send_reply(message: CandidateMessage, body: str) -> None:
+    if not body.strip():
+        raise MailCommandAgentError("Refusing to send an empty agent response.")
     with tempfile.NamedTemporaryFile(
         "w", encoding="utf-8", suffix=".txt", delete=False
     ) as body_file:
@@ -610,7 +674,8 @@ def send_reply(subject: str, body: str) -> None:
                 "-",
                 AGENT_ADDRESS,
                 AUTHORIZED_SENDER,
-                reply_subject(subject),
+                message.mailbox_source,
+                message.internal_id,
                 str(body_path),
             ],
             input=MAIL_SEND_APPLESCRIPT,
@@ -678,7 +743,7 @@ def process_candidate(  # noqa: PLR0913 - explicit dependencies keep the mail bo
         if prior_status == "ready_to_reply":
             output_path = response_file(state_dir, key)
             response = parse_codex_response(output_path)
-            send_reply(message.subject, response.reply_body)
+            send_reply(message, response.reply_body)
             update_message_state(state, key, "replied", now_epoch(), result=response.status)
             save_state(path, state)
             output_path.unlink(missing_ok=True)
@@ -690,7 +755,7 @@ def process_candidate(  # noqa: PLR0913 - explicit dependencies keep the mail bo
                 "changed local or remote state. I will not rerun it automatically. Please check "
                 "the mail-command-agent logs and current repository state before resending it."
             )
-            send_reply(message.subject, interrupted_body)
+            send_reply(message, interrupted_body)
             update_message_state(state, key, "interrupted_replied", now_epoch())
             save_state(path, state)
             print(f"Reported interrupted mail command {short_key} to the authorized sender.")
@@ -721,7 +786,7 @@ def process_candidate(  # noqa: PLR0913 - explicit dependencies keep the mail bo
 
     update_message_state(state, key, "ready_to_reply", now_epoch(), result=response.status)
     save_state(path, state)
-    send_reply(message.subject, response.reply_body)
+    send_reply(message, response.reply_body)
     update_message_state(state, key, "replied", now_epoch(), result=response.status)
     save_state(path, state)
     output_path.unlink(missing_ok=True)
@@ -802,13 +867,13 @@ def run(args: argparse.Namespace) -> int:
         scan_started_at = timestamp
         scan_since = int(state.get("scan_since", scan_started_at))
         inbox_lookback_seconds = scan_started_at - scan_since + DEFAULT_POLL_OVERLAP_SECONDS
-        sent_scan_since = state.get("sent_scan_since")
-        sent_lookback_seconds = (
+        all_mail_scan_since = state.get("all_mail_scan_since", state.get("sent_scan_since"))
+        all_mail_lookback_seconds = (
             None
-            if sent_scan_since is None
-            else scan_started_at - int(sent_scan_since) + DEFAULT_POLL_OVERLAP_SECONDS
+            if all_mail_scan_since is None
+            else scan_started_at - int(all_mail_scan_since) + DEFAULT_POLL_OVERLAP_SECONDS
         )
-        candidates = fetch_candidates(inbox_lookback_seconds, sent_lookback_seconds)
+        candidates = fetch_candidates(inbox_lookback_seconds, all_mail_lookback_seconds)
         workspace_dirs = default_workspace_dirs()
         results = [
             process_candidate(
@@ -823,10 +888,11 @@ def run(args: argparse.Namespace) -> int:
         ]
         if not args.dry_run:
             state["scan_since"] = scan_started_at
-            state["sent_scan_since"] = scan_started_at
+            state["all_mail_scan_since"] = scan_started_at
+            state.pop("sent_scan_since", None)
             save_state(path, state)
-            if sent_scan_since is None:
-                print("Initialized Sent mailbox cursor; existing sent messages were not processed.")
+            if all_mail_scan_since is None:
+                print("Initialized All Mail cursor; existing messages were not processed.")
         eligible = sum(result not in {"rejected", "skipped"} for result in results)
         print(f"Mail command scan complete: candidates={len(candidates)} actionable={eligible}.")
         return 0
