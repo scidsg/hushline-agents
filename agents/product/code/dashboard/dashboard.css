@@ -219,7 +219,8 @@ h2 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   grid-template-areas:
     "activity activity activity"
-    "lead news delivery";
+    "lead news delivery"
+    "outbound outbound outbound";
   align-items: start;
   gap: 1rem;
 }
@@ -238,6 +239,10 @@ h2 {
 
 .delivery-panel {
   grid-area: delivery;
+}
+
+.outbound-panel {
+  grid-area: outbound;
 }
 
 .panel {
@@ -433,6 +438,57 @@ td:first-child {
   color: var(--danger);
 }
 
+.outbound-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.outbound-company {
+  margin-bottom: 0.35rem;
+  color: var(--brand-deep);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.outbound-subject {
+  margin-bottom: 0.45rem;
+  font-size: clamp(1.15rem, 2.5vw, 1.65rem);
+  font-weight: 700;
+}
+
+.outbound-privacy {
+  margin-bottom: 0;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.outbound-success {
+  display: grid;
+  justify-items: center;
+  gap: 0.45rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.outbound-check {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  background: var(--success-soft);
+  color: var(--success);
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
 .runner-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -537,7 +593,8 @@ footer {
       "activity"
       "news"
       "delivery"
-      "lead";
+      "lead"
+      "outbound";
   }
 }
 
@@ -560,6 +617,14 @@ footer {
 
   .chart-legend {
     justify-content: flex-start;
+  }
+
+  .outbound-content {
+    grid-template-columns: 1fr;
+  }
+
+  .outbound-success {
+    justify-items: start;
   }
 }
 

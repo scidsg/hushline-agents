@@ -95,7 +95,7 @@
             <div><dt>Total reviewed</dt><dd id="lead-total">—</dd></div>
           </dl>
           <p class="privacy-note">
-            Aggregate counts only. Prospect identities, message content, headers, and
+            Aggregate counts only. Inbound prospect identities, message content, headers, and
             fingerprints are never exposed here.
           </p>
         </article>
@@ -144,6 +144,27 @@
               <span id="delivery-bluesky" class="platform-status" role="img"></span>
             </li>
           </ul>
+        </article>
+
+        <article class="panel outbound-panel" aria-labelledby="outbound-heading">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Sales outreach</p>
+              <h2 id="outbound-heading">Last successful outbound email</h2>
+            </div>
+          </div>
+          <p id="outbound-empty" class="news-empty">No successful outbound email found.</p>
+          <div id="outbound-content" class="outbound-content" hidden>
+            <div>
+              <p id="outbound-company" class="outbound-company"></p>
+              <p id="outbound-subject" class="outbound-subject"></p>
+              <p class="outbound-privacy">Recipient address and message body omitted.</p>
+            </div>
+            <div class="outbound-success">
+              <span class="outbound-check" role="img" aria-label="Successfully sent">✓</span>
+              <time id="outbound-sent-at"></time>
+            </div>
+          </div>
         </article>
       </section>
 

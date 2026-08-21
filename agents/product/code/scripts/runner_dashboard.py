@@ -343,6 +343,44 @@ def lead_metric_payload(
     }
 
 
+def last_outbound_sales_email(path: Path) -> dict[str, Any]:
+    unavailable = {"available": False}
+    if path.is_symlink() or not path.is_file():
+        return unavailable
+    try:
+        if path.stat().st_size > MAX_STATE_BYTES:
+            return unavailable
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return unavailable
+    if not isinstance(payload, dict) or not isinstance(payload.get("sent"), list):
+        return unavailable
+
+    candidates: list[tuple[datetime, dict[str, Any]]] = []
+    for entry in payload["sent"]:
+        if not isinstance(entry, dict):
+            continue
+        sent_at = parse_publication_time(entry.get("sent_at"))
+        company_name = bounded_text(entry, "company_name", limit=120)
+        subject = bounded_text(entry, "subject", limit=240)
+        if sent_at is None or company_name is None or subject is None:
+            continue
+        candidates.append(
+            (
+                sent_at,
+                {
+                    "available": True,
+                    "company_name": company_name,
+                    "subject": subject,
+                    "sent_at": sent_at.isoformat().replace("+00:00", "Z"),
+                },
+            )
+        )
+    if not candidates:
+        return unavailable
+    return max(candidates, key=lambda item: item[0])[1]
+
+
 def read_archive_json(path: Path) -> dict[str, Any] | None:
     if path.is_symlink() or not path.is_file():
         return None
@@ -566,12 +604,15 @@ def build_snapshot(
     runners = [runner_status(spec, launchctl_reader) for spec in specs]
     activity = activity_series(specs, today=current.date())
     leads = lead_metrics(repo_dir / "logs/sales/lead-agent/state.json", today=current.date())
+    outbound_email = last_outbound_sales_email(
+        repo_dir / "logs/sales/sales-contact-agent-state.json"
+    )
     social_repo = social_repo_dir or repo_dir.parent / "hushline-social"
     news_post = last_news_post(social_repo)
     social_post_status = last_social_post_status(social_repo)
     failed = sum(item["status"] == "failed" for item in runners)
     running = sum(item["status"] == "running" for item in runners)
-    healthy = sum(item["status"] == "healthy" for item in runners)
+    healthy = sum(item["status"] in {"healthy", "running"} for item in runners)
     paused = sum(item["status"] == "paused" for item in runners)
     activity_7d = sum(sum(series["values"][-7:]) for series in activity["series"])
     return {
@@ -589,6 +630,7 @@ def build_snapshot(
         "runners": runners,
         "activity": activity,
         "leads": leads,
+        "last_outbound_sales_email": outbound_email,
         "last_news_post": news_post,
         "last_social_post_status": social_post_status,
     }

@@ -35,10 +35,12 @@ The Hush Line-branded web dashboard shows current runner health, a 14-day activi
 chart, qualified-lead counts, the latest action outcome for each runner, and a
 `Last news post` widget. A compact success card shows only a check or an X for the
 LinkedIn, Mastodon, and Bluesky receipts in the newest daily feature-post archive.
+The full-width outbound-sales card exposes only the latest successful send time, company,
+and subject from local delivery state; it omits the recipient address and message body.
 The news widget reads the newest published archive under the sibling
 `hushline-social/previous-article-posts/` checkout and exposes only its date, source,
 headline, source link, and a public platform link. It does not expose social copy drafts,
-raw logs, prospect data, or message content.
+raw logs, inbound prospect data, outbound recipient addresses, or message bodies.
 
 Install or refresh the continuous GUI LaunchAgent with:
 
@@ -54,9 +56,9 @@ through its own Tailscale interface. The service therefore listens on the exact 
 IPv4 address for peers and on loopback for same-node access. It never binds to the LAN
 address or all interfaces.
 
-The runner resolves `tailscale ip -4` at every start and binds only to that address. It
-does not bind to the LAN, loopback, or all interfaces, and it does not use Tailscale Serve
-or Funnel. Traffic between Tailnet peers remains inside Tailscale's encrypted tunnel; the
+The runner resolves `tailscale ip -4` at every start and binds to that exact address plus
+loopback for same-node access. It does not bind to the LAN or all interfaces, and it does
+not use Tailscale Serve or Funnel. Traffic between Tailnet peers remains inside Tailscale's encrypted tunnel; the
 dashboard itself uses HTTP on port `8765`. Tailnet access remains subject to Tailnet ACLs.
 The local server sends a restrictive Content Security Policy, disables caching and framing,
 and accepts only read-only HTTP routes. Because this is a per-user LaunchAgent, it starts

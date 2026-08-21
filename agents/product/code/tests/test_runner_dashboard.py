@@ -169,6 +169,72 @@ def test_snapshot_contains_only_aggregate_sales_data(tmp_path: Path) -> None:
     assert "message" not in encoded.lower()
 
 
+def test_running_worker_remains_in_healthy_summary_count(tmp_path: Path) -> None:
+    runner = load_runner()
+
+    snapshot = runner.build_snapshot(
+        tmp_path,
+        tmp_path,
+        now=datetime(2026, 8, 21, 12, tzinfo=UTC),
+        launchctl_reader=lambda label: (
+            runner.LaunchctlSignal(True, "running", None, 3)
+            if label == "com.hushline.sales.lead-agent"
+            else runner.LaunchctlSignal(True, "idle", 0, 3)
+        ),
+    )
+
+    assert snapshot["summary"]["running"] == 1
+    assert snapshot["summary"]["healthy"] == snapshot["summary"]["total"]
+    assert snapshot["summary"]["failed"] == 0
+
+
+def test_last_outbound_sales_email_returns_latest_success_without_sensitive_fields(
+    tmp_path: Path,
+) -> None:
+    runner = load_runner()
+    state_path = tmp_path / "sales-contact-agent-state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "sent": [
+                    {
+                        "company_name": "Older Company",
+                        "subject": "Older subject",
+                        "sent_at": "2026-08-20T12:00:00+00:00",
+                    },
+                    {
+                        "company_name": "Example Company",
+                        "subject": "A safer reporting channel",
+                        "sent_at": "2026-08-21T15:30:00+00:00",
+                        "recipient": "private@example.com",
+                        "body": "private message body",
+                    },
+                ],
+                "failed": [
+                    {
+                        "company_name": "Failed Company",
+                        "subject": "Failed subject",
+                        "failed_at": "2026-08-22T15:30:00+00:00",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.last_outbound_sales_email(state_path)
+    encoded = json.dumps(result)
+
+    assert result == {
+        "available": True,
+        "company_name": "Example Company",
+        "subject": "A safer reporting channel",
+        "sent_at": "2026-08-21T15:30:00Z",
+    }
+    assert "private@example.com" not in encoded
+    assert "private message body" not in encoded
+
+
 def write_news_archive(
     social_repo: Path,
     archive_date: str,
@@ -345,15 +411,18 @@ def test_dashboard_assets_are_hush_line_branded_and_dependency_free() -> None:
     assert "Last news post" in html
     assert "Last social post" in html
     assert "Success status" in html
+    assert "Last successful outbound email" in html
     assert "#7d25c1" in css
     assert "Atkinson Hyperlegible" in css
     assert '"activity activity activity"' in css
     assert '"lead news delivery"' in css
+    assert '"outbound outbound outbound"' in css
     assert "https://" not in html
     assert "http://" not in html
     assert 'fetch("/api/dashboard"' in javascript
     assert "renderLastNewsPost" in javascript
     assert "renderLastSocialPostStatus" in javascript
+    assert "renderLastOutboundSalesEmail" in javascript
     assert "smoothLinePath" in javascript
     assert 'svgElement("path"' in javascript
 

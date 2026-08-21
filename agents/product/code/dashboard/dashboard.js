@@ -219,6 +219,21 @@ function renderLastSocialPostStatus(delivery) {
   });
 }
 
+function renderLastOutboundSalesEmail(outboundEmail) {
+  const empty = document.getElementById("outbound-empty");
+  const content = document.getElementById("outbound-content");
+  const available = Boolean(outboundEmail && outboundEmail.available);
+  empty.hidden = available;
+  content.hidden = !available;
+  if (!available) return;
+
+  setText("outbound-company", outboundEmail.company_name);
+  setText("outbound-subject", outboundEmail.subject);
+  const sentAt = document.getElementById("outbound-sent-at");
+  sentAt.dateTime = outboundEmail.sent_at;
+  sentAt.textContent = new Date(outboundEmail.sent_at).toLocaleString();
+}
+
 function renderDashboard(data) {
   const {
     summary,
@@ -227,6 +242,7 @@ function renderDashboard(data) {
     runners,
     last_news_post: lastNewsPost,
     last_social_post_status: lastSocialPostStatus,
+    last_outbound_sales_email: lastOutboundSalesEmail,
   } = data;
   setText("healthy-count", `${summary.healthy}/${summary.total}`);
   setText("healthy-detail", `${summary.running} running · ${summary.paused} paused`);
@@ -252,6 +268,7 @@ function renderDashboard(data) {
   renderRunners(runners);
   renderLastNewsPost(lastNewsPost);
   renderLastSocialPostStatus(lastSocialPostStatus);
+  renderLastOutboundSalesEmail(lastOutboundSalesEmail);
   const updated = new Date(data.generated_at);
   setText("updated-at", `Updated ${updated.toLocaleString()}`);
   setText("refresh-status", `Live · refreshes every ${data.refresh_seconds}s`);
