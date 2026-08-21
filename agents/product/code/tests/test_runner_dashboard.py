@@ -361,7 +361,9 @@ def test_launchd_and_tailscale_assets_keep_backend_private() -> None:
     assert "tailscale serve" not in network_script
     assert "tailscale funnel" not in network_script
     assert "0.0.0.0" not in run_script  # noqa: S104 - no all-interface bind.
-    assert "Tailscale-IP health check" in installer
+    assert "require_cmd lsof" in installer
+    assert '"-iTCP@${dashboard_host}:${dashboard_port}"' in installer
+    assert "Test from another Tailnet device" in installer
 
 
 def test_server_rejects_non_loopback_bind(tmp_path: Path) -> None:

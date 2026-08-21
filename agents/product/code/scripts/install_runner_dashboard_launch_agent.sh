@@ -46,8 +46,8 @@ render_plist() {
 
 main() {
   require_cmd dscl
-  require_cmd curl
   require_cmd launchctl
+  require_cmd lsof
   require_cmd plutil
   require_cmd python3
   require_cmd sed
@@ -69,14 +69,14 @@ main() {
   launchctl enable "gui/$APP_UID/$LABEL"
 
   for _attempt in 1 2 3 4 5; do
-    if curl --noproxy '*' --fail --silent "$dashboard_url/healthz" >/dev/null 2>&1; then
+    if lsof -nP -a "-iTCP@${dashboard_host}:${dashboard_port}" -sTCP:LISTEN >/dev/null 2>&1; then
       break
     fi
     sleep 1
   done
 
-  if ! curl --noproxy '*' --fail --silent "$dashboard_url/healthz" >/dev/null 2>&1; then
-    echo "Dashboard failed its Tailscale-IP health check." >&2
+  if ! lsof -nP -a "-iTCP@${dashboard_host}:${dashboard_port}" -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "Dashboard did not open its Tailscale-IP listening socket." >&2
     exit 1
   fi
 
@@ -95,7 +95,7 @@ Tailnet dashboard:
 - $dashboard_url/
 
 This LaunchAgent runs continuously in the $APP_USER Aqua login session.
-Test with: curl --noproxy '*' --fail $dashboard_url/healthz
+Test from another Tailnet device: curl --fail $dashboard_url/healthz
 EOF
 }
 
