@@ -29,6 +29,13 @@ escape_sed_replacement() {
   printf '%s' "$1" | sed 's/[&|]/\\&/g'
 }
 
+dashboard_sockets_ready() {
+  local dashboard_host="$1"
+  local dashboard_port="$2"
+  lsof -nP -a "-iTCP@127.0.0.1:${dashboard_port}" -sTCP:LISTEN >/dev/null 2>&1 &&
+    lsof -nP -a "-iTCP@${dashboard_host}:${dashboard_port}" -sTCP:LISTEN >/dev/null 2>&1
+}
+
 render_plist() {
   local repo_dir_escaped=""
   local home_dir_escaped=""
@@ -69,14 +76,14 @@ main() {
   launchctl enable "gui/$APP_UID/$LABEL"
 
   for _attempt in 1 2 3 4 5; do
-    if lsof -nP -a "-iTCP@${dashboard_host}:${dashboard_port}" -sTCP:LISTEN >/dev/null 2>&1; then
+    if dashboard_sockets_ready "$dashboard_host" "$dashboard_port"; then
       break
     fi
     sleep 1
   done
 
-  if ! lsof -nP -a "-iTCP@${dashboard_host}:${dashboard_port}" -sTCP:LISTEN >/dev/null 2>&1; then
-    echo "Dashboard did not open its Tailscale-IP listening socket." >&2
+  if ! dashboard_sockets_ready "$dashboard_host" "$dashboard_port"; then
+    echo "Dashboard did not open its loopback and Tailscale-IP listening sockets." >&2
     exit 1
   fi
 
@@ -93,6 +100,9 @@ Logs:
 
 Tailnet dashboard:
 - $dashboard_url/
+
+On this Mac:
+- http://127.0.0.1:$dashboard_port/
 
 This LaunchAgent runs continuously in the $APP_USER Aqua login session.
 Test from another Tailnet device: curl --fail $dashboard_url/healthz

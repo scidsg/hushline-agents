@@ -97,7 +97,7 @@ class HeaderWriter(Protocol):
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Serve the private Hush Line agent dashboard.")
-    parser.add_argument("--host", default=DEFAULT_HOST)
+    parser.add_argument("--host", action="append", dest="hosts")
     parser.add_argument("--port", type=int, default=int(os.environ.get(PORT_ENV, DEFAULT_PORT)))
     parser.add_argument("--repo-dir", type=Path, default=default_repo_dir())
     parser.add_argument("--home-dir", type=Path, default=Path.home())
@@ -655,25 +655,78 @@ def serve(
     *,
     social_repo_dir: Path | None = None,
 ) -> None:
-    if not bind_host_is_private(host):
+    serve_hosts(repo_dir, home_dir, (host,), port, social_repo_dir=social_repo_dir)
+
+
+def serve_hosts(
+    repo_dir: Path,
+    home_dir: Path,
+    hosts: tuple[str, ...],
+    port: int,
+    *,
+    social_repo_dir: Path | None = None,
+) -> None:
+    unique_hosts = tuple(dict.fromkeys(hosts))
+    if not unique_hosts or any(not bind_host_is_private(host) for host in unique_hosts):
         raise ValueError("The dashboard must bind to loopback or a Tailscale IPv4 address")
     if port < 1 or port > MAX_PORT:
         raise ValueError("Dashboard port must be between 1 and 65535")
-    server = ThreadingHTTPServer((host, port), make_handler(repo_dir, home_dir, social_repo_dir))
+    handler = make_handler(repo_dir, home_dir, social_repo_dir)
+    servers: list[ThreadingHTTPServer] = []
+    try:
+        for host in unique_hosts:
+            servers.append(ThreadingHTTPServer((host, port), handler))
+    except OSError:
+        for server in servers:
+            server.server_close()
+        raise
 
-    def stop_server(_signum: int, _frame: object) -> None:
-        threading.Thread(target=server.shutdown, daemon=True).start()
+    stopped = threading.Event()
+    stop_lock = threading.Lock()
 
-    signal.signal(signal.SIGTERM, stop_server)
-    signal.signal(signal.SIGINT, stop_server)
-    print(f"Hush Line agent dashboard listening on http://{host}:{port}", flush=True)
-    server.serve_forever(poll_interval=0.5)
+    def stop_servers() -> None:
+        with stop_lock:
+            if stopped.is_set():
+                return
+            for server in servers:
+                server.shutdown()
+            stopped.set()
+
+    def handle_signal(_signum: int, _frame: object) -> None:
+        threading.Thread(target=stop_servers, daemon=True).start()
+
+    signal.signal(signal.SIGTERM, handle_signal)
+    signal.signal(signal.SIGINT, handle_signal)
+    threads = [
+        threading.Thread(
+            target=server.serve_forever,
+            kwargs={"poll_interval": 0.5},
+            daemon=True,
+        )
+        for server in servers
+    ]
+    for host, thread in zip(unique_hosts, threads, strict=True):
+        thread.start()
+        print(f"Hush Line agent dashboard listening on http://{host}:{port}", flush=True)
+    try:
+        stopped.wait()
+    finally:
+        stop_servers()
+        for thread in threads:
+            thread.join(timeout=2)
+        for server in servers:
+            server.server_close()
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
     try:
-        serve(args.repo_dir.resolve(), args.home_dir.resolve(), args.host, args.port)
+        serve_hosts(
+            args.repo_dir.resolve(),
+            args.home_dir.resolve(),
+            tuple(args.hosts or (DEFAULT_HOST,)),
+            args.port,
+        )
     except (OSError, ValueError) as exc:
         print(f"runner-dashboard: {exc}", file=sys.stderr)
         return 1

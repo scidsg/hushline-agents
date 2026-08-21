@@ -48,9 +48,11 @@ Install or refresh the continuous GUI LaunchAgent with:
 
 The dashboard is installed in `~/Library/LaunchAgents/com.hushline.runner-dashboard.plist`
 and is available to other Tailnet peers at `http://<tailscale-ip>:8765/`. Open that URL
-from a trusted device connected to the same Tailnet. macOS does not reliably route a
-connection from this node back through its own Tailscale interface, so installation
-verifies the exact listening socket instead of issuing a local HTTP health request.
+from a trusted device connected to the same Tailnet. On the runner Mac itself, use
+`http://127.0.0.1:8765/`: macOS does not reliably route a connection from a node back
+through its own Tailscale interface. The service therefore listens on the exact Tailscale
+IPv4 address for peers and on loopback for same-node access. It never binds to the LAN
+address or all interfaces.
 
 The runner resolves `tailscale ip -4` at every start and binds only to that address. It
 does not bind to the LAN, loopback, or all interfaces, and it does not use Tailscale Serve

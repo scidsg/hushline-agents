@@ -357,11 +357,15 @@ def test_launchd_and_tailscale_assets_keep_backend_private() -> None:
     assert "run_runner_dashboard.sh" in plist
     assert "<key>KeepAlive</key>" in plist
     assert "resolve_runner_dashboard_host" in run_script
+    assert '--host "127.0.0.1"' in run_script
+    assert '--host "$HOST"' in run_script
     assert "tailscale ip -4" in network_script
     assert "tailscale serve" not in network_script
     assert "tailscale funnel" not in network_script
     assert "0.0.0.0" not in run_script  # noqa: S104 - no all-interface bind.
     assert "require_cmd lsof" in installer
+    assert "dashboard_sockets_ready" in installer
+    assert '"-iTCP@127.0.0.1:${dashboard_port}"' in installer
     assert '"-iTCP@${dashboard_host}:${dashboard_port}"' in installer
     assert "Test from another Tailnet device" in installer
 
@@ -381,3 +385,12 @@ def test_server_accepts_only_loopback_or_tailscale_addresses() -> None:
     assert runner.bind_host_is_private("100.113.237.2")
     assert not runner.bind_host_is_private("192.168.1.164")
     assert not runner.bind_host_is_private("0.0.0.0")  # noqa: S104 - rejection test.
+
+
+def test_dashboard_parser_accepts_loopback_and_tailscale_hosts() -> None:
+    runner = load_runner()
+
+    args = runner.parse_args(["--host", "127.0.0.1", "--host", "100.113.237.2", "--port", "8765"])
+
+    assert args.hosts == ["127.0.0.1", "100.113.237.2"]
+    assert args.port == 8765

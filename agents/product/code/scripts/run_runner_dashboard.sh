@@ -12,6 +12,7 @@ HOST="$(resolve_runner_dashboard_host)"
 
 exec python3 \
   "$AGENTS_REPO_DIR/agents/product/code/scripts/runner_dashboard.py" \
+  --host "127.0.0.1" \
   --host "$HOST" \
   --port "$PORT" \
   --repo-dir "$AGENTS_REPO_DIR"
