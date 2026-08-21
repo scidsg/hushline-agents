@@ -221,7 +221,7 @@ h2 {
     "activity activity activity"
     "lead news delivery"
     "outbound outbound outbound";
-  align-items: start;
+  align-items: stretch;
   gap: 1rem;
 }
 

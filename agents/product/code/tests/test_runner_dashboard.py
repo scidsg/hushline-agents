@@ -468,6 +468,7 @@ def test_dashboard_assets_are_hush_line_branded_and_dependency_free() -> None:
     assert '"activity activity activity"' in css
     assert '"lead news delivery"' in css
     assert '"outbound outbound outbound"' in css
+    assert "align-items: stretch" in css
     assert "https://" not in html
     assert "http://" not in html
     assert 'fetch("/api/dashboard"' in javascript
