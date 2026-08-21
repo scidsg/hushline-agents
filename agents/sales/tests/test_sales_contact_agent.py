@@ -294,6 +294,40 @@ def test_selection_uses_organization_state_to_avoid_duplicate_company(
     assert profile.company_name == "Cloudflare"
 
 
+def test_main_treats_exhausted_candidate_pool_as_successful_no_op(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runner = load_runner()
+    csv_path = tmp_path / "audit.csv"
+    write_audit_csv(csv_path)
+
+    def no_candidate(*_args: object, **_kwargs: object) -> object:
+        raise runner.NoSalesCandidateError(
+            "No uncontacted sales candidates with resolved recipient emails remain."
+        )
+
+    monkeypatch.setattr(runner, "select_next_target", no_candidate)
+
+    result = runner.main(
+        [
+            "--audit-csv",
+            str(csv_path),
+            "--state-file",
+            str(tmp_path / "state.json"),
+            "--output-dir",
+            str(tmp_path / "drafts"),
+            "--from-address",
+            "sales@hushline.app",
+            "--dry-run",
+        ]
+    )
+
+    assert result == 0
+    assert "No action required" in capsys.readouterr().out
+
+
 def test_draft_is_specific_short_and_mentions_price(tmp_path: Path) -> None:
     runner = load_runner()
     csv_path = tmp_path / "audit.csv"

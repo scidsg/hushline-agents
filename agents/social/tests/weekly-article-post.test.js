@@ -229,6 +229,20 @@ test("normalizes headlines into direct news leads", () => {
     titleAsNewsLead("New whistleblower protection bill advances"),
     "A new whistleblower protection bill advances.",
   );
+  assert.equal(
+    titleAsNewsLead("SEC: Whistleblower program changes advance"),
+    "SEC — Whistleblower program changes advance.",
+  );
+});
+
+test("normalizes story colons before applying the no-label copy gate", () => {
+  const social = composeCopy(sampleArticle({
+    description: "The filing says: investigators reviewed the protected disclosure.",
+    title: "Agency report: Whistleblower alleged retaliation",
+  }));
+
+  assert.match(social.linkedin, /^Agency report — Whistleblower alleged retaliation\./);
+  assert.doesNotMatch(social.linkedin, /^.+:\s/m);
 });
 
 test("article copy quality gate rejects lazy automated templates", () => {
@@ -309,6 +323,48 @@ test("parses RSS feeds and dry-runs a weekly article post from a fixture feed", 
     assert.equal(post.source, "The Guardian");
     assert.equal(post.publish_mode, "text");
     assert.match(post.social.linkedin, /Sign up for Hush Line/);
+  } finally {
+    fs.rmSync(tempRoot, { force: true, recursive: true });
+  }
+});
+
+test("a feed with no eligible article exits successfully without creating a post", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "weekly-article-empty-feed-"));
+  const feedPath = path.join(tempRoot, "feed.xml");
+  const feedsPath = path.join(tempRoot, "feeds.json");
+
+  fs.writeFileSync(
+    feedPath,
+    "<rss><channel><item><title>Weekend sports scores</title><link>https://www.theguardian.com/sport/example</link><description>Sports results.</description><pubDate>Tue, 02 Jun 2026 16:00:00 GMT</pubDate></item></channel></rss>",
+  );
+  fs.writeFileSync(
+    feedsPath,
+    JSON.stringify([{ source: "The Guardian", url: `file://${feedPath}` }]),
+  );
+
+  try {
+    const output = execFileSync(
+      process.execPath,
+      [
+        scriptPath,
+        "--date",
+        "2026-06-03",
+        "--archive-key",
+        "2026-06-03-99",
+        "--feed-file",
+        feedsPath,
+      ],
+      {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+      },
+    );
+
+    assert.match(output, /no post is due/i);
+    assert.equal(
+      fs.existsSync(path.join(REPO_ROOT, "previous-article-posts", "2026-06-03-99", "post.json")),
+      false,
+    );
   } finally {
     fs.rmSync(tempRoot, { force: true, recursive: true });
   }

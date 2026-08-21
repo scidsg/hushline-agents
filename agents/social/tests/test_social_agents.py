@@ -157,6 +157,28 @@ def test_post_agent_wrappers_pin_run_date_before_random_wait() -> None:
         assert 'if [[ -n "$RUN_DATE" ]]; then' in script
 
 
+def test_social_codex_commands_use_supported_workspace_sandbox_flags() -> None:
+    for script_name in [
+        "agent_daily_social_planner.sh",
+        "render-verified-user-post.js",
+    ]:
+        script = (SOCIAL_AGENT_ROOT / "scripts" / script_name).read_text(encoding="utf-8")
+
+        assert "--sandbox" in script
+        assert "workspace-write" in script
+        assert "--full-auto" not in script
+
+
+def test_news_runner_treats_no_eligible_article_as_successful_no_op() -> None:
+    script = (
+        SOCIAL_AGENT_ROOT / "scripts" / "run_whistleblower_news_post_agent_launchd.sh"
+    ).read_text(encoding="utf-8")
+    no_op_guard = script.index('if [[ ! -f "$(planned_post_path)" ]]')
+
+    assert "no eligible current article; no post was published" in script
+    assert no_op_guard < script.index('run_with_transient_retry "whistleblower-news-post-agent"')
+
+
 def test_post_agent_wrappers_publish_optional_secondary_platforms_after_linkedin() -> None:
     for script_name in [
         "run_whistleblower_news_post_agent_launchd.sh",
