@@ -35,12 +35,14 @@ The Hush Line-branded web dashboard shows current runner health, a 14-day activi
 chart, qualified-lead counts, the latest action outcome for each runner, and a
 `Last news post` widget. A compact success card shows only a check or an X for the
 LinkedIn, Mastodon, and Bluesky receipts in the newest daily feature-post archive.
-The full-width outbound-sales card exposes only the latest successful send time, company,
-and subject from local delivery state; it omits the recipient address and message body.
+The full-width outbound-sales card renders the latest successful send as an email preview,
+including its sender, recipient, company, subject, send time, and body. The body is read
+only from the matching local draft under `logs/sales/drafts/`; its path, recipient, and
+subject must match the confirmed send record before it can be displayed.
 The news widget reads the newest published archive under the sibling
 `hushline-social/previous-article-posts/` checkout and exposes only its date, source,
 headline, source link, and a public platform link. It does not expose social copy drafts,
-raw logs, inbound prospect data, outbound recipient addresses, or message bodies.
+raw logs, or inbound prospect data.
 
 Install or refresh the continuous GUI LaunchAgent with:
 

@@ -188,10 +188,22 @@ def test_running_worker_remains_in_healthy_summary_count(tmp_path: Path) -> None
     assert snapshot["summary"]["failed"] == 0
 
 
-def test_last_outbound_sales_email_returns_latest_success_without_sensitive_fields(
+def test_last_outbound_sales_email_returns_latest_matching_email_preview(
     tmp_path: Path,
 ) -> None:
     runner = load_runner()
+    drafts_dir = tmp_path / "drafts"
+    drafts_dir.mkdir()
+    draft_path = drafts_dir / "example.txt"
+    draft_path.write_text(
+        "From: sales@hushline.app\n"
+        "To: private@example.com\n"
+        "Recipient source: verified public page\n"
+        "Subject: A safer reporting channel\n"
+        "Target: example.com rank 1\n\n"
+        "Hello Example Company,\n\nThis is the original message body.",
+        encoding="utf-8",
+    )
     state_path = tmp_path / "sales-contact-agent-state.json"
     state_path.write_text(
         json.dumps(
@@ -207,7 +219,7 @@ def test_last_outbound_sales_email_returns_latest_success_without_sensitive_fiel
                         "subject": "A safer reporting channel",
                         "sent_at": "2026-08-21T15:30:00+00:00",
                         "recipient": "private@example.com",
-                        "body": "private message body",
+                        "draft_path": str(draft_path),
                     },
                 ],
                 "failed": [
@@ -222,17 +234,56 @@ def test_last_outbound_sales_email_returns_latest_success_without_sensitive_fiel
         encoding="utf-8",
     )
 
-    result = runner.last_outbound_sales_email(state_path)
-    encoded = json.dumps(result)
+    result = runner.last_outbound_sales_email(state_path, drafts_dir=drafts_dir)
 
     assert result == {
         "available": True,
         "company_name": "Example Company",
+        "sender": "sales@hushline.app",
+        "recipient": "private@example.com",
         "subject": "A safer reporting channel",
         "sent_at": "2026-08-21T15:30:00Z",
+        "body": "Hello Example Company,\n\nThis is the original message body.",
     }
-    assert "private@example.com" not in encoded
-    assert "private message body" not in encoded
+
+
+def test_outbound_sales_email_does_not_read_draft_outside_allowed_directory(
+    tmp_path: Path,
+) -> None:
+    runner = load_runner()
+    drafts_dir = tmp_path / "drafts"
+    drafts_dir.mkdir()
+    outside_path = tmp_path / "outside.txt"
+    outside_path.write_text(
+        "From: sales@hushline.app\n"
+        "To: person@example.com\n"
+        "Subject: Subject\n\n"
+        "Must not be exposed.",
+        encoding="utf-8",
+    )
+    state_path = tmp_path / "state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "sent": [
+                    {
+                        "company_name": "Example",
+                        "recipient": "person@example.com",
+                        "subject": "Subject",
+                        "sent_at": "2026-08-21T15:30:00Z",
+                        "draft_path": str(outside_path),
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.last_outbound_sales_email(state_path, drafts_dir=drafts_dir)
+
+    assert result["available"] is True
+    assert result["body"] is None
+    assert "Must not be exposed" not in json.dumps(result)
 
 
 def write_news_archive(

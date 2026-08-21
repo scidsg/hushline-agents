@@ -27,9 +27,12 @@ DEFAULT_REFRESH_SECONDS = 15
 MAX_LOG_TAIL_BYTES = 2_000_000
 MAX_STATE_BYTES = 5_000_000
 MAX_NEWS_ARCHIVE_BYTES = 1_000_000
+MAX_OUTBOUND_DRAFT_BYTES = 100_000
 MAX_URL_LENGTH = 2_000
+MAX_PATH_LENGTH = 4_096
 MAX_PORT = 65_535
 PORT_ENV = "HUSHLINE_RUNNER_DASHBOARD_PORT"
+OUTBOUND_SALES_SENDER = "sales@hushline.app"
 TAILSCALE_IPV4_NETWORK = ipaddress.ip_network("100.64.0.0/10")
 
 DATE_RE = re.compile(r"(?P<date>20\d{2}-\d{2}-\d{2})")
@@ -343,7 +346,46 @@ def lead_metric_payload(
     }
 
 
-def last_outbound_sales_email(path: Path) -> dict[str, Any]:
+def outbound_draft_body(
+    value: object,
+    *,
+    drafts_dir: Path,
+    recipient: str,
+    subject: str,
+) -> str | None:
+    if not isinstance(value, str) or not value or len(value) > MAX_PATH_LENGTH:
+        return None
+    draft_path = Path(value)
+    if draft_path.is_symlink() or not draft_path.is_file():
+        return None
+    try:
+        allowed_root = drafts_dir.resolve(strict=True)
+        resolved_path = draft_path.resolve(strict=True)
+        if not resolved_path.is_relative_to(allowed_root):
+            return None
+        if resolved_path.stat().st_size > MAX_OUTBOUND_DRAFT_BYTES:
+            return None
+        draft = resolved_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return None
+    headers, separator, body = draft.partition("\n\n")
+    if not separator or not body.strip():
+        return None
+    header_values: dict[str, str] = {}
+    for line in headers.splitlines():
+        name, delimiter, header_value = line.partition(":")
+        if delimiter:
+            header_values[name.strip().lower()] = header_value.strip()
+    if (
+        header_values.get("from", "").lower() != OUTBOUND_SALES_SENDER
+        or header_values.get("to", "").lower() != recipient.lower()
+        or header_values.get("subject") != subject
+    ):
+        return None
+    return body.strip()[:MAX_OUTBOUND_DRAFT_BYTES]
+
+
+def last_outbound_sales_email(path: Path, *, drafts_dir: Path) -> dict[str, Any]:
     unavailable = {"available": False}
     if path.is_symlink() or not path.is_file():
         return unavailable
@@ -362,17 +404,27 @@ def last_outbound_sales_email(path: Path) -> dict[str, Any]:
             continue
         sent_at = parse_publication_time(entry.get("sent_at"))
         company_name = bounded_text(entry, "company_name", limit=120)
+        recipient = bounded_text(entry, "recipient", limit=320)
         subject = bounded_text(entry, "subject", limit=240)
-        if sent_at is None or company_name is None or subject is None:
+        if sent_at is None or company_name is None or recipient is None or subject is None:
             continue
+        body = outbound_draft_body(
+            entry.get("draft_path"),
+            drafts_dir=drafts_dir,
+            recipient=recipient,
+            subject=subject,
+        )
         candidates.append(
             (
                 sent_at,
                 {
                     "available": True,
                     "company_name": company_name,
+                    "sender": OUTBOUND_SALES_SENDER,
+                    "recipient": recipient,
                     "subject": subject,
                     "sent_at": sent_at.isoformat().replace("+00:00", "Z"),
+                    "body": body,
                 },
             )
         )
@@ -605,7 +657,8 @@ def build_snapshot(
     activity = activity_series(specs, today=current.date())
     leads = lead_metrics(repo_dir / "logs/sales/lead-agent/state.json", today=current.date())
     outbound_email = last_outbound_sales_email(
-        repo_dir / "logs/sales/sales-contact-agent-state.json"
+        repo_dir / "logs/sales/sales-contact-agent-state.json",
+        drafts_dir=repo_dir / "logs/sales/drafts",
     )
     social_repo = social_repo_dir or repo_dir.parent / "hushline-social"
     news_post = last_news_post(social_repo)

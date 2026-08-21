@@ -227,8 +227,11 @@ function renderLastOutboundSalesEmail(outboundEmail) {
   content.hidden = !available;
   if (!available) return;
 
+  setText("outbound-sender", outboundEmail.sender);
+  setText("outbound-recipient", outboundEmail.recipient);
   setText("outbound-company", outboundEmail.company_name);
   setText("outbound-subject", outboundEmail.subject);
+  setText("outbound-body", outboundEmail.body || "Message body unavailable.");
   const sentAt = document.getElementById("outbound-sent-at");
   sentAt.dateTime = outboundEmail.sent_at;
   sentAt.textContent = new Date(outboundEmail.sent_at).toLocaleString();
