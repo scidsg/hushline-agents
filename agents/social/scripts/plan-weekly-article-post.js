@@ -396,6 +396,7 @@ function cleanSentence(value) {
   const cleaned = String(value || "")
     .replaceAll(/\s+/g, " ")
     .replaceAll(/\s+([,.;?!])/g, "$1")
+    .replaceAll(/:\s+/g, " — ")
     .trim();
 
   if (!cleaned) {
@@ -628,7 +629,10 @@ async function main() {
     for (const error of errors) {
       process.stderr.write(`${error}\n`);
     }
-    throw new Error("No current whistleblower-related article found from the approved source allowlist.");
+    process.stdout.write(
+      "No current whistleblower-related article found from the approved source allowlist; no post is due.\n",
+    );
+    return;
   }
 
   const post = buildPost(selected, args);

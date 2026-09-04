@@ -161,6 +161,10 @@ class SalesAgentError(RuntimeError):
     pass
 
 
+class NoSalesCandidateError(SalesAgentError):
+    """Raised when a healthy scan has no eligible recipient left to contact."""
+
+
 @dataclass(frozen=True)
 class ContactFormRecord:
     rank: int
@@ -774,7 +778,9 @@ def select_next_target(
         )
         if recipient is not None:
             return record, profile, recipient
-    raise SalesAgentError("No uncontacted sales candidates with resolved recipient emails remain.")
+    raise NoSalesCandidateError(
+        "No uncontacted sales candidates with resolved recipient emails remain."
+    )
 
 
 def bool_env_enabled(name: str, *, default: bool) -> bool:
@@ -1192,12 +1198,16 @@ def main(argv: list[str] | None = None) -> int:
     records = load_contact_form_records(audit_csv)
     state = load_state(args.state_file)
     recipient_override = args.recipient_override or os.environ.get(RECIPIENT_OVERRIDE_ENV)
-    target, profile, recipient = select_next_target(
-        records,
-        state,
-        recipient_override=recipient_override,
-        research_timeout_seconds=args.research_timeout,
-    )
+    try:
+        target, profile, recipient = select_next_target(
+            records,
+            state,
+            recipient_override=recipient_override,
+            research_timeout_seconds=args.research_timeout,
+        )
+    except NoSalesCandidateError as exc:
+        print(f"Sales contact scan completed: no action required. {exc}")
+        return 0
     draft = build_draft(
         target,
         profile,

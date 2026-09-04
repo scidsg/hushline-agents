@@ -197,7 +197,6 @@ run_codex_from_prompt() {
     codex exec \
       --model "$CODEX_MODEL" \
       -c "model_reasoning_effort=\"$CODEX_REASONING_EFFORT\"" \
-      --full-auto \
       --sandbox workspace-write \
       -C "$REPO_DIR" \
       -o "$CODEX_OUTPUT_FILE" \

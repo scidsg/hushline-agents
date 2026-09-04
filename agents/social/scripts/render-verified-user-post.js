@@ -124,7 +124,6 @@ function generateVerifiedUserCopy(run, outputDir) {
         CODEX_MODEL,
         "-c",
         `model_reasoning_effort="${CODEX_REASONING_EFFORT}"`,
-        "--full-auto",
         "--sandbox",
         "workspace-write",
         "-C",

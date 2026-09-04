@@ -77,6 +77,10 @@ plan_post() {
   node scripts/plan-weekly-article-post.js --date "$(effective_date)"
 }
 
+planned_post_path() {
+  printf '%s\n' "$REPO_DIR/previous-article-posts/$(effective_date)/post.json"
+}
+
 publish_post() {
   cd "$REPO_DIR"
   local -a linkedin_cmd=(
@@ -120,6 +124,10 @@ publish_post() {
 run_agent() {
   update_git_checkout "$REPO_DIR" "hushline-social" "$AUTO_GIT_PULL" "$AUTO_GIT_CLEAN"
   plan_post
+  if [[ ! -f "$(planned_post_path)" ]]; then
+    echo "Whistleblower news scan completed with no eligible current article; no post was published."
+    return 0
+  fi
   run_with_transient_retry "whistleblower-news-post-agent" publish_post
 }
 
