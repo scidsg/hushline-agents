@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -83,3 +84,29 @@ def test_redirected_storage_link_fails(mounted: Any, tmp_path: Path) -> None:
     config["links"] = [str(link)]
     with pytest.raises(RuntimeError):
         storage.validate(config, volume)
+
+
+def test_launcher_does_not_run_when_storage_config_is_missing(tmp_path: Path) -> None:
+    env = dict(os.environ, HUSHLINE_DEV_STORAGE_CONFIG=str(tmp_path / "missing.json"))
+    result = subprocess.run(
+        ["/bin/bash", str(SCRIPT.with_name("with_dev_storage.sh")), "printf", "LAUNCHED"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "LAUNCHED" not in result.stdout
+
+
+def test_launcher_preserves_arguments_when_no_storage_guard_configured() -> None:
+    env = dict(os.environ, HUSHLINE_DEV_STORAGE_CONFIG="")
+    result = subprocess.run(
+        ["/bin/bash", str(SCRIPT.with_name("with_dev_storage.sh")), "printf", "%s", "with spaces"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert result.stdout == "with spaces"

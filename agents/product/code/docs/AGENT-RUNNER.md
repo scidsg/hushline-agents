@@ -641,8 +641,9 @@ are checked automatically in two-slot mode, but linked human acceptance evidence
 be reviewed by the implementing agent; issue closure alone is not proof of a security audit.
 
 For an external development disk, set `HUSHLINE_DEV_STORAGE_CONFIG` in the launchd job and
-run `dev_storage.py` from the host wrapper before starting Docker, as well as the runner's
-preflight. Its JSON configuration names `mount`, `root`, `volume_uuid`, optional `links`,
+wrap the existing host launcher with `bash with_dev_storage.sh <launcher> [arguments...]`.
+This runs `dev_storage.py` before the host launcher can start Docker, in addition to the
+runner's own preflight. Its JSON configuration names `mount`, `root`, `volume_uuid`, optional `links`,
 `minimum_external_free_gib` (default 20), and `minimum_internal_free_gib` (default 10).
 The guard checks mounted external volume identity, actual filesystem placement, configured
 symlink targets, and both free-space reserves. It fails closed if the disk is absent or a
