@@ -48,131 +48,39 @@ function execFilePromise(file, args, options) {
   });
 }
 
-test("daily planner auto-syncs before rejecting a stale local screenshots manifest", () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "daily-planner-sync-"));
-  const screenshotsRoot = path.join(tempRoot, "hushline-screenshots");
-  const latestRoot = path.join(screenshotsRoot, "releases", "latest");
-  const upstreamLatestRoot = path.join(tempRoot, "upstream", "releases", "latest");
-  const freshCapturedAt = new Date().toISOString();
-
-  fs.mkdirSync(path.join(screenshotsRoot, ".git"), { recursive: true });
-  fs.mkdirSync(latestRoot, { recursive: true });
-  fs.mkdirSync(path.join(upstreamLatestRoot, "guest"), { recursive: true });
-
-  fs.writeFileSync(
-    path.join(latestRoot, "manifest.json"),
-    `${JSON.stringify({ capturedAt: "2000-01-01T00:00:00.000Z", release: "old", scenes: [] })}\n`,
-  );
-  fs.writeFileSync(
-    path.join(upstreamLatestRoot, "manifest.json"),
-    `${JSON.stringify({
-      capturedAt: freshCapturedAt,
-      release: "fresh",
-      scenes: [{ files: [{ file: "guest/fresh-fold.png", mode: "fold" }] }],
-    })}\n`,
-  );
-  fs.writeFileSync(path.join(upstreamLatestRoot, "guest", "fresh-fold.png"), "png");
-
-  const testScript = [
-    "set -euo pipefail",
-    `export HUSHLINE_SCREENSHOTS_REPO_DIR=${shellQuote(screenshotsRoot)}`,
-    `export HUSHLINE_CURRENT_SCREENSHOTS_DIR=${shellQuote(path.join(tempRoot, "missing-current"))}`,
-    "export HUSHLINE_SCREENSHOT_MAX_AGE_DAYS=21",
-    "export HUSHLINE_SCREENSHOT_AUTO_SYNC=1",
-    "export HUSHLINE_ALLOW_STALE_SCREENSHOTS=0",
-    `export HUSHLINE_SCREENSHOTS_BASE_URL=${shellQuote(`file://${upstreamLatestRoot}`)}`,
-    `source ${shellQuote(plannerScriptPath)}`,
-    "remote_manifest_status() {",
-    "  local manifest_path=\"$1\"",
-    "  local release=\"\"",
-    "  release=\"$(node -e 'const fs=require(\"fs\"); const m=JSON.parse(fs.readFileSync(process.argv[1],\"utf8\")); process.stdout.write(String(m.release || \"\"));' \"$manifest_path\")\"",
-    "  if [[ \"$release\" == \"fresh\" ]]; then",
-    "    printf '%s\\n' match",
-    "  else",
-    "    printf '%s\\n' mismatch",
-    "  fi",
-    "}",
-    "verify_screenshot_source",
-    "",
-  ].join("\n");
-
+test("daily planner downloads online screenshots without a repository checkout", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "daily-planner-online-"));
+  const source = path.join(tempRoot, "online");
+  const cache = path.join(tempRoot, "cache", "latest");
+  fs.mkdirSync(source);
+  fs.writeFileSync(path.join(source, "one-fold.png"), "image");
+  fs.writeFileSync(path.join(source, "manifest.json"), JSON.stringify({
+    release: "current", capturedAt: new Date().toISOString(),
+    scenes: [{ files: [{ mode: "fold", file: "one-fold.png" }] }],
+  }));
   try {
-    const output = execFileSync("bash", ["-c", testScript], {
-      cwd: REPO_ROOT,
-      encoding: "utf8",
-    });
-
-    assert.match(output, /Local latest screenshots manifest is stale\. Syncing upstream latest snapshot\./);
-    assert.match(output, /Local latest screenshots folder synced to upstream\./);
-    const manifest = JSON.parse(fs.readFileSync(path.join(latestRoot, "manifest.json"), "utf8"));
-    assert.equal(manifest.release, "fresh");
-    assert.equal(fs.readFileSync(path.join(latestRoot, "guest", "fresh-fold.png"), "utf8"), "png");
-  } finally {
-    fs.rmSync(tempRoot, { force: true, recursive: true });
-  }
+    const output = execFileSync("bash", ["-c", [
+      "set -euo pipefail",
+      `export HUSHLINE_SCREENSHOT_CACHE_DIR=${shellQuote(cache)}`,
+      `export HUSHLINE_SCREENSHOTS_BASE_URL=${shellQuote(`file://${source}`)}`,
+      `source ${shellQuote(plannerScriptPath)}`,
+      "verify_screenshot_source",
+    ].join("\n")], {cwd: REPO_ROOT, encoding: "utf8"});
+    assert.match(output, /Synced latest screenshots/);
+    assert.equal(fs.readFileSync(path.join(cache, "one-fold.png"), "utf8"), "image");
+    assert.equal(fs.existsSync(path.join(cache, ".git")), false);
+  } finally { fs.rmSync(tempRoot, {recursive: true, force: true}); }
 });
 
-test("daily planner accepts fresh current screenshots before checking release manifest", () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "daily-planner-current-"));
-  const screenshotsRoot = path.join(tempRoot, "hushline-screenshots");
-  const currentRoot = path.join(tempRoot, "current-screenshots");
-
-  fs.mkdirSync(path.join(screenshotsRoot, ".git"), { recursive: true });
-  fs.mkdirSync(path.join(currentRoot, "guest"), { recursive: true });
-  fs.writeFileSync(
-    path.join(currentRoot, "guest", "guest-directory-verified-desktop-light-fold.png"),
-    "png",
-  );
-
-  const testScript = [
-    "set -euo pipefail",
-    `export HUSHLINE_SCREENSHOTS_REPO_DIR=${shellQuote(screenshotsRoot)}`,
-    `export HUSHLINE_CURRENT_SCREENSHOTS_DIR=${shellQuote(currentRoot)}`,
-    "export HUSHLINE_SCREENSHOT_MAX_AGE_DAYS=21",
-    "export HUSHLINE_ALLOW_STALE_SCREENSHOTS=0",
-    `source ${shellQuote(plannerScriptPath)}`,
-    "verify_screenshot_source",
-    "",
-  ].join("\n");
-
-  try {
-    const output = execFileSync("bash", ["-c", testScript], {
-      cwd: REPO_ROOT,
-      encoding: "utf8",
-    });
-
-    assert.match(output, /Current screenshots folder:/);
-    assert.match(output, /fold_screenshots=1/);
-  } finally {
-    fs.rmSync(tempRoot, { force: true, recursive: true });
-  }
-});
-
-test("daily repo update returns failure when either checkout update fails", () => {
-  const testScript = [
+test("daily repo update touches only the social archive and propagates failures", () => {
+  const output = execFileSync("bash", ["-c", [
     "set +e",
     `source ${shellQuote(updateRunReposLibPath)}`,
-    "resolve_screenshots_repo_dir() { printf '%s\\n' /tmp/hushline-screenshots; }",
-    "update_git_checkout() {",
-    "  printf '%s\\n' \"$2\"",
-    "  if [[ \"$2\" == \"hushline-social\" ]]; then",
-    "    return 1",
-    "  fi",
-    "  return 0",
-    "}",
+    'update_git_checkout() { printf "%s\\n" "$2"; return 1; }',
     "update_daily_planning_repos /tmp/hushline-social 1 1",
-    "printf 'rc:%s\\n' \"$?\"",
-    "",
-  ].join("\n");
-
-  const output = execFileSync("bash", ["-c", testScript], {
-    cwd: REPO_ROOT,
-    encoding: "utf8",
-  });
-
-  assert.match(output, /hushline-social/);
-  assert.match(output, /hushline-screenshots/);
-  assert.match(output, /rc:1/);
+    'printf "rc:%s\\n" "$?"',
+  ].join("\n")], {cwd: REPO_ROOT, encoding: "utf8"});
+  assert.equal(output.trim(), "hushline-social\nrc:1");
 });
 
 test("shared social repository lock serializes independent runner processes", async () => {

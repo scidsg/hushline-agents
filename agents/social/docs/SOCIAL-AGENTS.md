@@ -16,11 +16,20 @@ Default sibling layout:
 parent/
   hushline-agents/
   hushline-social/
-  hushline-screenshots/
 ```
 
 Set `HUSHLINE_SOCIAL_REPO_DIR` when the social archive/env checkout is not a sibling of
-`hushline-agents`. Set `HUSHLINE_SCREENSHOTS_REPO_DIR` when screenshots are elsewhere.
+`hushline-agents`. Feature screenshots are fetched online from the published
+latest manifest before planning; a screenshots Git checkout is not used.
+Downloads replace `~/.cache/hushline/screenshots/latest`, configurable with
+`HUSHLINE_SCREENSHOT_CACHE_DIR`. `HUSHLINE_SCREENSHOTS_BASE_URL` overrides the
+published source for testing. Only fold screenshots are downloaded, with a
+64 MiB cache limit, 4 MiB per image, 256 images, and a 1 MiB manifest limit.
+Replacement is staged and old releases are removed. A failed download preserves
+the previous cache but stops the run; it does not silently publish stale images.
+The existing cache plus a replacement may temporarily use up to 128 MiB.
+Standalone planning commands require running `node agents/social/scripts/sync-latest-screenshots.js`
+first. Scheduled and manual agent wrappers do this automatically.
 
 ## Schedules
 

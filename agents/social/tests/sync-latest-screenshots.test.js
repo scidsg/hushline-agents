@@ -8,7 +8,7 @@ const { execFileSync } = require("node:child_process");
 const REPO_ROOT = path.resolve(__dirname, "..");
 const scriptPath = path.join(REPO_ROOT, "scripts", "sync-latest-screenshots.js");
 
-test("sync-latest-screenshots stages files and preserves README.md", async () => {
+test("sync-latest-screenshots replaces the cache and removes obsolete files", async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "latest-sync-"));
   const destDir = path.join(tempRoot, "releases", "latest");
   const sourceDir = path.join(tempRoot, "source", "releases", "latest");
@@ -66,10 +66,7 @@ test("sync-latest-screenshots stages files and preserves README.md", async () =>
       fs.readFileSync(path.join(destDir, "admin", "two-fold.png"), "utf8"),
       "two",
     );
-    assert.equal(
-      fs.readFileSync(path.join(destDir, "README.md"), "utf8"),
-      "local readme\n",
-    );
+    assert.equal(fs.existsSync(path.join(destDir, "README.md")), false);
     assert.equal(fs.existsSync(path.join(destDir, "stale-owner")), false);
     assert.equal(fs.existsSync(path.join(destDir, "guest", "two-full.png")), false);
   } finally {
@@ -114,4 +111,32 @@ test("sync-latest-screenshots rejects manifest paths that escape staging", async
   } finally {
     fs.rmSync(tempRoot, { force: true, recursive: true });
   }
+});
+
+test("online cache rejects oversized images and preserves the previous snapshot", () => {
+  const { MAX_IMAGE_BYTES } = require("../scripts/sync-latest-screenshots");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bounded-screenshots-"));
+  const source = path.join(root, "source");
+  const dest = path.join(root, "cache", "latest");
+  fs.mkdirSync(source);
+  fs.mkdirSync(dest, {recursive: true});
+  fs.writeFileSync(path.join(dest, "old-fold.png"), "previous");
+  fs.writeFileSync(path.join(source, "huge-fold.png"), Buffer.alloc(MAX_IMAGE_BYTES + 1));
+  fs.writeFileSync(path.join(source, "manifest.json"), JSON.stringify({
+    scenes: [{files: [{mode: "fold", file: "huge-fold.png"}]}],
+  }));
+  try {
+    assert.throws(() => execFileSync(process.execPath,
+      [scriptPath, "--base-url", `file://${source}`, "--dest", dest],
+      {stdio: "pipe"}));
+    assert.equal(fs.readFileSync(path.join(dest, "old-fold.png"), "utf8"), "previous");
+    assert.deepEqual(fs.readdirSync(path.dirname(dest)), ["latest"]);
+  } finally { fs.rmSync(root, {recursive: true, force: true}); }
+});
+
+test("online cache rejects excessive manifest image counts before downloading", () => {
+  const { foldFilesFromManifest, MAX_IMAGES } = require("../scripts/sync-latest-screenshots");
+  assert.throws(() => foldFilesFromManifest({scenes: [{files: Array.from(
+    {length: MAX_IMAGES + 1}, (_, i) => ({mode: "fold", file: `${i}-fold.png`}),
+  )}]}), /image count limit/);
 });

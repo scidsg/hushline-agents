@@ -4,16 +4,21 @@
 
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 const { spawn } = require("node:child_process");
 
 const DEFAULT_BASE_URL =
   "https://raw.githubusercontent.com/scidsg/hushline-screenshots/main/releases/latest";
 const CURL_USER_AGENT = "hushline-social-sync/1.0";
+const MAX_MANIFEST_BYTES = 1024 * 1024;
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+const MAX_CACHE_BYTES = 64 * 1024 * 1024;
+const MAX_IMAGES = 256;
 
 function parseArgs(argv) {
   const args = {
     baseUrl: process.env.HUSHLINE_SCREENSHOTS_BASE_URL || DEFAULT_BASE_URL,
-    dest: path.resolve(process.cwd(), "..", "hushline-screenshots", "releases", "latest"),
+    dest: path.resolve(process.env.HUSHLINE_SCREENSHOT_CACHE_DIR || path.join(os.homedir(), ".cache", "hushline", "screenshots", "latest")),
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -39,12 +44,12 @@ function printHelp() {
     [
       "Usage:",
       "  node scripts/sync-latest-screenshots.js",
-      "  node scripts/sync-latest-screenshots.js --dest ../hushline-screenshots/releases/latest",
+      "  node scripts/sync-latest-screenshots.js --dest /tmp/current-screenshots",
       "",
       "Behavior:",
       "  - Downloads the upstream latest manifest from hushline-screenshots",
       "  - Downloads all fold-mode PNGs referenced by that manifest",
-      "  - Writes them into the local latest screenshots folder",
+      "  - Replaces a disposable cache (64 MiB maximum); never clones a repository",
       "",
     ].join("\n"),
   );
@@ -109,13 +114,15 @@ function curlArgs(url) {
 }
 
 async function fetchText(url) {
-  const buffer = await runCurl(curlArgs(url), { captureStdout: true });
+  const buffer = await runCurl([...curlArgs(url), "--max-filesize", String(MAX_MANIFEST_BYTES)], { captureStdout: true });
+  if (buffer.length > MAX_MANIFEST_BYTES) throw new Error("Screenshot manifest exceeds size limit.");
   return buffer.toString("utf8");
 }
 
-async function downloadFile(url, destination) {
+async function downloadFile(url, destination, maxBytes = MAX_IMAGE_BYTES) {
   const temporaryDestination = `${destination}.tmp`;
-  await runCurl([...curlArgs(url), "--output", temporaryDestination]);
+  await runCurl([...curlArgs(url), "--max-filesize", String(maxBytes), "--output", temporaryDestination]);
+  if (fs.statSync(temporaryDestination).size > maxBytes) throw new Error("Screenshot exceeds size limit.");
   fs.renameSync(temporaryDestination, destination);
 }
 
@@ -163,24 +170,8 @@ function foldFilesFromManifest(manifest) {
     }
   }
 
+  if (files.size - 1 > MAX_IMAGES) throw new Error("Screenshot manifest exceeds image count limit.");
   return [...files].sort();
-}
-
-async function downloadWithConcurrency(files, worker) {
-  const concurrency = 8;
-  let cursor = 0;
-
-  async function runWorker() {
-    while (cursor < files.length) {
-      const current = cursor;
-      cursor += 1;
-      await worker(files[current], current);
-    }
-  }
-
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, files.length) }, () => runWorker()),
-  );
 }
 
 function swapDestination(stagedDest, dest) {
@@ -190,8 +181,6 @@ function swapDestination(stagedDest, dest) {
     `.latest-backup-${process.pid}-${Date.now()}`,
   );
   const hadExistingDest = fs.existsSync(dest);
-  const backupReadme = path.join(backupDest, "README.md");
-  const nextReadme = path.join(dest, "README.md");
 
   fs.mkdirSync(parentDir, { recursive: true });
 
@@ -201,9 +190,6 @@ function swapDestination(stagedDest, dest) {
 
   try {
     fs.renameSync(stagedDest, dest);
-    if (hadExistingDest && fs.existsSync(backupReadme) && !fs.existsSync(nextReadme)) {
-      fs.copyFileSync(backupReadme, nextReadme);
-    }
     fs.rmSync(backupDest, { force: true, recursive: true });
   } catch (error) {
     if (fs.existsSync(dest)) {
@@ -220,6 +206,8 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const manifest = JSON.parse(await fetchText(`${args.baseUrl}/manifest.json`));
   const files = foldFilesFromManifest(manifest);
+  if (files.length < 2) throw new Error("Online screenshot manifest has no fold screenshots.");
+  fs.mkdirSync(path.dirname(args.dest), { recursive: true });
   const stagingRoot = fs.mkdtempSync(
     path.join(path.dirname(args.dest), ".latest-sync-"),
   );
@@ -229,16 +217,17 @@ async function main() {
   try {
     fs.mkdirSync(stagedDest, { recursive: true });
 
-    await downloadWithConcurrency(imageFiles, async (file) => {
+    const manifestText = `${JSON.stringify(manifest, null, 2)}\n`;
+    let remaining = MAX_CACHE_BYTES - Buffer.byteLength(manifestText);
+    // Sequential downloads enforce an aggregate disk bound even on failure.
+    for (const file of imageFiles) {
+      if (remaining <= 0) throw new Error("Screenshot cache exceeds size limit.");
       const destination = resolveUnderRoot(stagedDest, file);
       fs.mkdirSync(path.dirname(destination), { recursive: true });
-      await downloadFile(`${args.baseUrl}/${file}`, destination);
-    });
-
-    fs.writeFileSync(
-      path.join(stagedDest, "manifest.json"),
-      `${JSON.stringify(manifest, null, 2)}\n`,
-    );
+      await downloadFile(`${args.baseUrl}/${file}`, destination, Math.min(MAX_IMAGE_BYTES, remaining));
+      remaining -= fs.statSync(destination).size;
+    }
+    fs.writeFileSync(path.join(stagedDest, "manifest.json"), manifestText);
     swapDestination(stagedDest, args.dest);
   } finally {
     fs.rmSync(stagingRoot, { force: true, recursive: true });
@@ -257,9 +246,11 @@ async function main() {
 
 module.exports = {
   DEFAULT_BASE_URL,
+  MAX_CACHE_BYTES,
+  MAX_IMAGE_BYTES,
+  MAX_IMAGES,
   curlArgs,
   downloadFile,
-  downloadWithConcurrency,
   fetchText,
   foldFilesFromManifest,
   main,

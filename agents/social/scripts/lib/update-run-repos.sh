@@ -1,20 +1,5 @@
 #!/usr/bin/env bash
 
-resolve_screenshots_repo_dir() {
-  local repo_dir="$1"
-  local parent_dir=""
-  if [[ -n "${HUSHLINE_SCREENSHOTS_REPO_DIR:-}" ]]; then
-    printf '%s\n' "$HUSHLINE_SCREENSHOTS_REPO_DIR"
-    return
-  fi
-
-  parent_dir="$(
-    cd "$repo_dir/.." &&
-      pwd
-  )"
-  printf '%s\n' "$parent_dir/hushline-screenshots"
-}
-
 ensure_git_checkout() {
   local repo_dir="$1"
   local label="$2"
@@ -106,16 +91,5 @@ update_git_checkout() {
 }
 
 update_daily_planning_repos() {
-  local repo_dir="$1"
-  local auto_git_pull="$2"
-  local auto_git_clean="$3"
-  local screenshots_repo_dir=""
-  local rc=0
-
-  screenshots_repo_dir="$(resolve_screenshots_repo_dir "$repo_dir")"
-
-  update_git_checkout "$repo_dir" "hushline-social" "$auto_git_pull" "$auto_git_clean" || rc=1
-  update_git_checkout "$screenshots_repo_dir" "hushline-screenshots" "$auto_git_pull" "$auto_git_clean" || rc=1
-
-  return "$rc"
+  update_git_checkout "$1" "hushline-social" "$2" "$3"
 }

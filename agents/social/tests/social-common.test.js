@@ -7,9 +7,9 @@ const path = require("node:path");
 const modulePath = require.resolve("../scripts/lib/social-common");
 
 function withFreshSocialCommon(tempScreenshotsRepoDir) {
-  const previousScreenshotsRoot = process.env.HUSHLINE_SCREENSHOTS_REPO_DIR;
+  const previousScreenshotsRoot = process.env.HUSHLINE_SCREENSHOT_CACHE_DIR;
   const previousCurrentScreenshotsRoot = process.env.HUSHLINE_CURRENT_SCREENSHOTS_DIR;
-  process.env.HUSHLINE_SCREENSHOTS_REPO_DIR = tempScreenshotsRepoDir;
+  process.env.HUSHLINE_SCREENSHOT_CACHE_DIR = path.join(tempScreenshotsRepoDir, "releases", "latest");
   process.env.HUSHLINE_CURRENT_SCREENSHOTS_DIR = path.join(tempScreenshotsRepoDir, "current");
   delete require.cache[modulePath];
   const socialCommon = require("../scripts/lib/social-common");
@@ -18,9 +18,9 @@ function withFreshSocialCommon(tempScreenshotsRepoDir) {
     cleanup() {
       delete require.cache[modulePath];
       if (previousScreenshotsRoot === undefined) {
-        delete process.env.HUSHLINE_SCREENSHOTS_REPO_DIR;
+        delete process.env.HUSHLINE_SCREENSHOT_CACHE_DIR;
       } else {
-        process.env.HUSHLINE_SCREENSHOTS_REPO_DIR = previousScreenshotsRoot;
+        process.env.HUSHLINE_SCREENSHOT_CACHE_DIR = previousScreenshotsRoot;
       }
       if (previousCurrentScreenshotsRoot === undefined) {
         delete process.env.HUSHLINE_CURRENT_SCREENSHOTS_DIR;
@@ -97,7 +97,7 @@ test("ensureLatestFoldScreenshot accepts only files under the configured screens
   }
 });
 
-test("current screenshots folder takes precedence over release screenshots", () => {
+test("online cache takes precedence over legacy local screenshot directories", () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "social-common-"));
   const currentDir = path.join(tempRoot, "current", "guest");
   const latestDir = path.join(tempRoot, "releases", "latest", "guest");
@@ -112,9 +112,9 @@ test("current screenshots folder takes precedence over release screenshots", () 
   const { socialCommon, cleanup } = withFreshSocialCommon(tempRoot);
 
   try {
-    assert.equal(socialCommon.SCREENSHOTS_ROOT, path.join(tempRoot, "current"));
-    assert.equal(socialCommon.ensureLatestFoldScreenshot(currentPath), currentPath);
-    assert.throws(() => socialCommon.ensureLatestFoldScreenshot(latestPath), /must come from the configured screenshots folder/);
+    assert.equal(socialCommon.SCREENSHOTS_ROOT, path.join(tempRoot, "releases", "latest"));
+    assert.equal(socialCommon.ensureLatestFoldScreenshot(latestPath), latestPath);
+    assert.throws(() => socialCommon.ensureLatestFoldScreenshot(currentPath), /must come from the configured screenshots folder/);
   } finally {
     cleanup();
     fs.rmSync(tempRoot, { force: true, recursive: true });
