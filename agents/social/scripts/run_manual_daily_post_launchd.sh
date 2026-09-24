@@ -45,7 +45,7 @@ Usage:
 
 Behavior:
   - loads launchd-style env from .env.launchd
-  - updates hushline-social and ../hushline-screenshots like the scheduled planner wrapper
+  - updates hushline-social like the scheduled planner wrapper
   - chooses the next available daily archive container for the requested date
   - runs the daily planner for that archive container
   - publishes the rendered result to LinkedIn, plus Mastodon when enabled

@@ -610,7 +610,7 @@ function printHelp() {
       "",
       "Behavior:",
       "  - Reads audience context from Hush Line docs and ../hushline/AGENTS.md",
-      "  - Builds an eligible screenshot pool from the local curated hushline-screenshots set when available",
+      "  - Builds an eligible screenshot pool from the the bounded online screenshot cache",
       "  - Randomly preselects one screenshot after excluding recent repeats of the same screen",
       "  - Enforces hard cooldowns for repeated topic families, concepts, hooks, and CTA patterns",
       "  - Writes daily planning context and a Codex prompt to previous-posts/<archive-key>",
