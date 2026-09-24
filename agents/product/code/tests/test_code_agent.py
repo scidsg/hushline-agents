@@ -10,6 +10,9 @@ RUNNER_SCRIPT = ROOT / "agents" / "product" / "code" / "scripts" / "code_agent.s
 
 
 def _run_bash(script: str) -> subprocess.CompletedProcess[str]:
+    # Existing cases exercise the supported one-slot mode; two-slot integration has
+    # dedicated tests and explicitly overrides this value in the script itself.
+    script = "export HUSHLINE_DAILY_MAX_INFLIGHT=1\n" + script
     return subprocess.run(
         ["/bin/bash", "-lc", script],
         cwd=ROOT,
@@ -2145,7 +2148,7 @@ main
 
     assert result.returncode == 0, result.stderr
     assert "[20" in result.stdout
-    assert "Skipped: no open issues found in project" in result.stdout
+    assert "Skipped: no unblocked issue with available capacity in project" in result.stdout
 
     calls = call_log.read_text(encoding="utf-8").splitlines()
     assert "collect-issue-candidates" in calls
