@@ -158,7 +158,7 @@ assigned GitHub issue into one reviewed pull request.
 11. Before opening or updating an issue PR, run `make lint` and `make test`; if either fails, repair the failure and rerun the checks.
 12. Open or update the issue PR only when there are meaningful non-log changes and local validation is clean.
 13. Poll the open issue PR for actionable comments, review threads, change requests, and failing checks.
-13. Address and resolve actionable feedback, push the issue PR update, and continue polling until the PR is closed.
+14. Address actionable feedback and push validated updates. In two-slot mode, review each open runner PR once per invocation, then consider an available slot; in one-slot mode, continue polling until the PR closes.
 
 Every queued issue is assumed to require a real change. Once the runner claims an issue, the only successful terminal outcome is a clean, usable PR. If an attempt does not complete a validated implementation, the issue stays claimed as `In Progress`; the next runner pass must resume that same assigned issue instead of selecting new work, returning it to the eligible queue, opening a diagnostic PR, or moving it to `Ready for Review`.
 
@@ -185,7 +185,7 @@ Every queued issue is assumed to require a real change. Once the runner claims a
    - if alerts remain with no open Dependabot PR, create or resume the dedicated signed security-remediation branch and PR
    - never dismiss an alert, suppress an audit, self-approve runner-authored remediation, or bypass branch protections
    - refresh and clean `main` after the dependency pass
-8. Resume monitoring any open bot-authored issue PR whose head branch matches the daily issue branch pattern before selecting new issue work. This makes PR polling restart-resilient after launchd unloads, crashes, or reboots.
+8. Review each open bot-authored daily-issue or epic PR once before selecting new work. Drafts may remain open while a second item proceeds. Review passes are restart-resilient; API/check failures fail closed. `HUSHLINE_DAILY_MAX_INFLIGHT=1` restores the old continuous-monitor mode.
 9. Check cheap GitHub exit conditions before any new-work queue lookup or network sync/Docker work:
    - exit if any open human-authored PR exists
 10. Select issue target before any network sync or Docker work:
@@ -194,9 +194,11 @@ Every queued issue is assumed to require a real change. Once the runner claims a
    - select the top open issue from project `Hush Line Roadmap`, column `Agent Eligible`.
 11. Check remaining cheap GitHub exit conditions before any network sync or Docker work:
 
-- for non-epic issues, exit if any other open PR exists from `hushline-dev`
-- for child issues with a GitHub parent epic, allow the long-lived epic PR (head branch `codex/epic-<epic>`) and the current child issue PR (head branch `codex/daily-issue-<issue>`)
-- for child issues with a GitHub parent epic, exit only if there are unrelated open bot PRs outside those allowed heads
+- default two-slot mode: count every open bot PR plus open `In Progress` assignments without a corresponding PR; an issue and its PR count once
+- a draft PR occupies a slot but permits a new ticket in the second slot; a ready-for-review PR blocks new assignments while existing assigned work can finish
+- native open blocked-by dependencies prevent assignment, including forced issues; a failed dependency/capacity read blocks work
+- check capacity before claiming and again before opening/updating a PR; parent and child PRs each occupy a slot
+- one-slot compatibility mode retains the original unrelated-PR guard and epic/child exceptions
 
 12. Hard-refresh local state only after an issue is selected and skip guards pass:
 
@@ -257,7 +259,7 @@ Every queued issue is assumed to require a real change. Once the runner claims a
     - `Validation` lists automated checks run by the runner or CI.
     - `Manual Testing` lists human reviewer steps to exercise the changed feature after the PR opens. It is not a log of actions the LLM or runner performed.
 27. Refresh the local run log after PR creation, including the opened PR URL, coverage gap issue URL when created, and post-check steps.
-28. Poll the open PR until it closes. When the monitor sees human/reviewer feedback (discussion comments, change-request reviews, or unresolved review threads), it invokes Codex on the PR branch immediately, reruns `make lint` and `make test`, commits and pushes any fix, resolves addressed review threads, and resumes polling. When the only actionable item is a failing check, it waits for pending PR checks to settle before invoking Codex so transient in-progress checks do not trigger unnecessary fixes.
+28. In two-slot mode, perform one PR feedback pass and return for the next scheduled invocation; in one-slot mode, poll until it closes. When the monitor sees human/reviewer feedback (discussion comments, change-request reviews, or unresolved review threads), it invokes Codex on the PR branch immediately, reruns `make lint` and `make test`, commits and pushes any fix, resolves addressed review threads, and resumes polling. When the only actionable item is a failing check, it waits for pending PR checks to settle before invoking Codex so transient in-progress checks do not trigger unnecessary fixes.
 29. Return to a clean `main` on normal completion or PR closure.
     - If the run fails after creating branch work, cleanup resets the checkout back to a clean base branch.
     - A new scheduled pass discards local worktree changes and switches back to the base branch before evaluating GitHub queue guards.
@@ -584,6 +586,8 @@ The runner now performs an SSH signing preflight immediately after configuring g
 - `HUSHLINE_DAILY_KILL_PORTS` (default `4566 4571 5432 8080`)
 - `HUSHLINE_DAILY_RUN_LOG_RETENTION` (default `10`)
 - `HUSHLINE_DAILY_RUN_LOG_DIR` (default `logs/runs/` in the `hushline-agents` checkout)
+- `HUSHLINE_DAILY_MAX_INFLIGHT` (default `2`; allowed `1` or `2`; outstanding work items, not simultaneous workers)
+- `HUSHLINE_DEV_STORAGE_CONFIG` (optional path to the external-storage guard configuration; absent leaves existing storage behavior unchanged)
 - `HUSHLINE_DAILY_MAX_ISSUE_ATTEMPTS` (default `10`; positive integer)
 - `HUSHLINE_DAILY_MAX_FIX_ATTEMPTS` (default `8`; positive integer)
 - `HUSHLINE_DAILY_CODEX_STATUS_CHECK_ENABLED` (default `1`; set `0` to skip Codex `/status` rate-limit checks)
@@ -595,7 +599,7 @@ The runner now performs an SSH signing preflight immediately after configuring g
 - `HUSHLINE_DAILY_CODEX_STATUS_IDLE_CHECK_STATE_FILE` (default: a hidden sibling file next to `HUSHLINE_DAILY_RUNNER_LOCK_DIR`, for example `/tmp/.hushline-code-agent.lock.codex-status-last-check`; stores the last idle `/status` attempt timestamp without placing files inside the lock directory)
 - `HUSHLINE_DAILY_GITHUB_READ_ATTEMPTS` (default `3`; positive integer; retries transient, fully verified GitHub reads before a startup guard fails closed)
 - `HUSHLINE_DAILY_GITHUB_READ_RETRY_DELAY_SECONDS` (default `2`; non-negative integer; delay between verified GitHub read attempts)
-- `HUSHLINE_DAILY_POST_PR_FEEDBACK_DELAY_SECONDS` (default `600`; non-negative integer; set `0` to skip continuous PR feedback monitoring; when enabled, the issue runner keeps the PR branch checked out and polls until the PR closes)
+- `HUSHLINE_DAILY_POST_PR_FEEDBACK_DELAY_SECONDS` (default `600`; non-negative integer; set `0` to skip continuous PR feedback monitoring; when enabled, two-slot mode makes one feedback pass per invocation; one-slot mode polls until the PR closes)
 - `HUSHLINE_DAILY_RUNNER_LOCK_DIR` (default `${TMPDIR:-/tmp}/hushline-code-agent.lock`)
 - `HUSHLINE_DEPENDABOT_MERGE_POLL_SECONDS` (default `30`; positive integer)
 - `HUSHLINE_DEPENDABOT_MERGE_WAIT_SECONDS` (default `1800`; non-negative integer; maximum time to wait for protected checks or fallback auto-merge before continuing the dependency pass)
@@ -618,3 +622,37 @@ Flow:
    - `docker compose down -v --remove-orphans`
    - `docker compose up -d postgres blob-storage`
    - `docker compose run --rm dev_data`
+
+
+## Two outstanding items and external development storage
+
+The runner still holds one repository lock and executes one build at a time. It does not
+start competing Docker resets or concurrent Codex processes. A parked draft consumes one
+of two outstanding slots; the next unblocked roadmap ticket can use the other. Existing
+assignments are resumed before new work. GitHub PRs and project state are the restart-safe
+source of truth, and all pages are read before deciding capacity. Draft conversion, human
+approval, merges, and production deployment are not automated by this scheduling change.
+
+Each invocation reviews both recognized runner PRs before selecting new work. The current
+checkout is reused serially; review branches remain on GitHub. Keep human development in a
+separate checkout. A failed review/check fetch prevents new work. An unrelated human-authored
+PR and pending Dependabot maintenance retain their existing guards. Native dependencies
+are checked automatically in two-slot mode, but linked human acceptance evidence must still
+be reviewed by the implementing agent; issue closure alone is not proof of a security audit.
+
+For an external development disk, set `HUSHLINE_DEV_STORAGE_CONFIG` in the launchd job and
+wrap the existing host launcher with `bash with_dev_storage.sh <launcher> [arguments...]`.
+This runs `dev_storage.py` before the host launcher can start Docker, in addition to the
+runner's own preflight. Its JSON configuration names `mount`, `root`, `volume_uuid`, optional `links`,
+`minimum_external_free_gib` (default 20), and `minimum_internal_free_gib` (default 10).
+The guard checks mounted external volume identity, actual filesystem placement, configured
+symlink targets, and both free-space reserves. It fails closed if the disk is absent or a
+path would resolve onto the internal disk. It does not create a missing mount directory.
+
+Stop the code LaunchAgent and Colima before migrating VM disks. Copy sparse files and verify
+the destination before switching paths. Keep credentials and account configuration on the
+internal disk; move only agreed development data/caches. Retain a rollback copy until the
+VM and Docker data are verified, then remove only that verified duplicate. External-drive
+use and start-time reserves reduce disk pressure but cannot guarantee that other apps or a
+long-running build never fill a disk. If the drive is disconnected, reconnect/unlock it
+before restarting Colima and the code runner.

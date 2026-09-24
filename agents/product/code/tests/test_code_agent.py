@@ -1,22 +1,58 @@
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import subprocess
+import tempfile
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[4]
 RUNNER_SCRIPT = ROOT / "agents" / "product" / "code" / "scripts" / "code_agent.sh"
 
 
 def _run_bash(script: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["/bin/bash", "-lc", script],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    # Existing cases exercise the supported one-slot mode; two-slot integration has
+    # dedicated tests and explicitly overrides this value in the script itself.
+    script = "export HUSHLINE_DAILY_MAX_INFLIGHT=1\n" + script
+    with tempfile.TemporaryDirectory(prefix="hushline-test-gh-") as directory:
+        isolated = Path(directory)
+        marker = isolated / "unmocked-call"
+        shim = isolated / "gh"
+        shim.write_text('#!/bin/sh\n: > "$HUSHLINE_TEST_GH_MARKER"\nexit 97\n')
+        shim.chmod(0o700)
+        env = dict(os.environ)
+        for key in ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"):
+            env.pop(key, None)
+        env.update(
+            PATH=f"{isolated}{os.pathsep}{env.get('PATH', '')}",
+            GH_CONFIG_DIR=str(isolated / "config"),
+            HUSHLINE_TEST_GH_MARKER=str(marker),
+        )
+        # A non-login shell preserves the isolated PATH instead of loading host profiles.
+        result = subprocess.run(
+            ["/bin/bash", "-c", script],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert not marker.exists(), "Test attempted an unmocked GitHub CLI call"
+        return result
+
+
+def test_shell_harness_blocks_unmocked_github_even_when_errors_are_swallowed() -> None:
+    with pytest.raises(AssertionError, match="unmocked GitHub"):
+        _run_bash("command gh api user 2>/dev/null || true")
+
+
+def test_shell_harness_allows_explicit_github_mock() -> None:
+    result = _run_bash("gh() { printf 'mock-only'; }; gh api user")
+    assert result.returncode == 0
+    assert result.stdout == "mock-only"
 
 
 def test_runner_defaults_repo_dir_to_sibling_hushline_checkout() -> None:
@@ -2145,7 +2181,7 @@ main
 
     assert result.returncode == 0, result.stderr
     assert "[20" in result.stdout
-    assert "Skipped: no open issues found in project" in result.stdout
+    assert "Skipped: no unblocked issue with available capacity in project" in result.stdout
 
     calls = call_log.read_text(encoding="utf-8").splitlines()
     assert "collect-issue-candidates" in calls
@@ -2197,6 +2233,7 @@ run_step() {{
   "$@"
 }}
 configure_bot_git_identity() {{ :; }}
+set_issue_project_status() {{ :; }}
 resolve_issue_parent_epic() {{ :; }}
 count_open_bot_prs_excluding_heads() {{ printf '0\\n'; }}
 count_open_human_prs() {{ printf '0\\n'; }}
@@ -3236,6 +3273,9 @@ find_open_pr_for_head_branch() {{
   fi
 }}
 configure_bot_git_identity() {{ :; }}
+set_issue_project_status() {{
+  printf 'mock-status:%s:%s\\n' "$1" "$2" >> {shlex.quote(str(call_log))}
+}}
 resume_open_issue_pr_monitor_if_any() {{ return 1; }}
 start_runtime_stack_and_seed_dev_data() {{
   printf 'runtime-bootstrap\\n' >> {shlex.quote(str(call_log))}
@@ -3254,6 +3294,7 @@ main
     calls = call_log.read_text(encoding="utf-8").splitlines()
     assert "count-open-bot-prs-excluding-heads" in calls
     assert "runtime-bootstrap" in calls
+    assert "mock-status:1732:In Progress" in calls
 
 
 def test_main_marks_issue_in_progress_before_runtime_bootstrap(tmp_path: Path) -> None:

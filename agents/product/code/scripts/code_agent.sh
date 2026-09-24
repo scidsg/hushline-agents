@@ -60,6 +60,7 @@ PROJECT_STATUS_FIELD_NAME="${HUSHLINE_DAILY_PROJECT_STATUS_FIELD_NAME:-Status}"
 PROJECT_STATUS_IN_PROGRESS="${HUSHLINE_DAILY_PROJECT_STATUS_IN_PROGRESS:-In Progress}"
 PROJECT_STATUS_READY_FOR_REVIEW="${HUSHLINE_DAILY_PROJECT_STATUS_READY_FOR_REVIEW:-Ready for Review}"
 PROJECT_ITEM_LIMIT="${HUSHLINE_DAILY_PROJECT_ITEM_LIMIT:-200}"
+MAX_INFLIGHT="${HUSHLINE_DAILY_MAX_INFLIGHT:-2}"
 HOST_PORTS_TO_CLEAR="${HUSHLINE_DAILY_KILL_PORTS:-4566 4571 5432 8080}"
 MAX_ISSUE_ATTEMPTS="${HUSHLINE_DAILY_MAX_ISSUE_ATTEMPTS:-10}"
 MAX_FIX_ATTEMPTS="${HUSHLINE_DAILY_MAX_FIX_ATTEMPTS:-8}"
@@ -1473,6 +1474,20 @@ find_open_issue_pr_to_resume() {
     '
 }
 
+issue_slot_plan() {
+  HUSHLINE_REPO_SLUG="$REPO_SLUG" \
+    HUSHLINE_BOT_LOGIN="$BOT_LOGIN" \
+    HUSHLINE_DAILY_PROJECT_OWNER="$PROJECT_OWNER" \
+    HUSHLINE_DAILY_PROJECT_TITLE="$PROJECT_TITLE" \
+    HUSHLINE_DAILY_PROJECT_COLUMN="$PROJECT_COLUMN" \
+    HUSHLINE_DAILY_PROJECT_STATUS_FIELD_NAME="$PROJECT_STATUS_FIELD_NAME" \
+    HUSHLINE_DAILY_PROJECT_STATUS_IN_PROGRESS="$PROJECT_STATUS_IN_PROGRESS" \
+    HUSHLINE_DAILY_BRANCH_PREFIX="$BRANCH_PREFIX" \
+    HUSHLINE_DAILY_EPIC_BRANCH_PREFIX="$EPIC_BRANCH_PREFIX" \
+    HUSHLINE_DAILY_MAX_INFLIGHT="$MAX_INFLIGHT" \
+    python3 "$SCRIPT_DIR/issue_slots.py" "$@"
+}
+
 count_open_human_prs() {
   local prs_json=""
 
@@ -2250,6 +2265,10 @@ check_pr_feedback_after_delay() {
   while :; do
     echo "==> Check PR #${pr_number} feedback and checks"
     if ! feedback_json="$(fetch_pr_feedback_json "$pr_number" 2>/dev/null)"; then
+      if (( MAX_INFLIGHT > 1 )); then
+        echo "Blocked: cannot verify PR #${pr_number} feedback; leaving its slot occupied." >&2
+        return 1
+      fi
       echo "Warning: failed to fetch post-PR feedback for PR #${pr_number}; retrying in ${POST_PR_FEEDBACK_DELAY_SECONDS}s."
       sleep "$POST_PR_FEEDBACK_DELAY_SECONDS"
       continue
@@ -2258,6 +2277,10 @@ check_pr_feedback_after_delay() {
     pr_state="$(pr_feedback_state "$feedback_json")"
 
     if ! checks_json="$(fetch_pr_checks_json "$pr_number" 2>/dev/null)"; then
+      if (( MAX_INFLIGHT > 1 )); then
+        echo "Blocked: cannot verify PR #${pr_number} checks; leaving its slot occupied." >&2
+        return 1
+      fi
       echo "Warning: failed to fetch post-PR checks for PR #${pr_number}."
       checks_json='[]'
     fi
@@ -2278,22 +2301,30 @@ check_pr_feedback_after_delay() {
     if pr_feedback_summary_requires_runner_action "$feedback_summary" \
       && [[ "$feedback_action_key" != "$last_feedback_action_key" ]]; then
       last_feedback_action_key="$feedback_action_key"
-      address_pr_feedback \
+      if ! address_pr_feedback \
         "$pr_number" \
         "$issue_number" \
         "$issue_title" \
         "$issue_labels" \
         "$branch_name" \
         "$feedback_summary" \
-        "$feedback_json"
+        "$feedback_json"; then
+        return 1
+      fi
     fi
 
+    if (( MAX_INFLIGHT > 1 )); then
+      echo "Completed feedback pass for PR #${pr_number}; keeping it open for human review."
+      return 0
+    fi
     sleep "$POST_PR_FEEDBACK_DELAY_SECONDS"
   done
 }
 
 resume_open_issue_pr_monitor_if_any() {
-  local resume_info=""
+  local resume_info="${1:-}"
+  local review_list=""
+  local review_info=""
   local pr_number=""
   local issue_number=""
   local branch_name=""
@@ -2301,12 +2332,28 @@ resume_open_issue_pr_monitor_if_any() {
   local issue_title=""
   local issue_labels=""
 
-  if [[ -n "$FORCE_ISSUE_NUMBER" ]]; then
+  if [[ -n "$FORCE_ISSUE_NUMBER" && -z "$resume_info" ]]; then
     return 1
   fi
 
-  if ! resume_info="$(find_open_issue_pr_to_resume)"; then
-    return 2
+  if (( MAX_INFLIGHT > 1 )) && [[ -z "$resume_info" ]]; then
+    if ! review_list="$(issue_slot_plan reviews)"; then
+      return 2
+    fi
+    while IFS= read -r review_info; do
+      [[ -z "$review_info" ]] && continue
+      if ! resume_open_issue_pr_monitor_if_any "$review_info"; then
+        return 2
+      fi
+    done <<< "$review_list"
+    # Review each existing PR once, then consider unused capacity in this same run.
+    return 1
+  fi
+
+  if [[ -z "$resume_info" ]]; then
+    if ! resume_info="$(find_open_issue_pr_to_resume)"; then
+      return 2
+    fi
   fi
 
   if [[ -z "$resume_info" ]]; then
@@ -2318,14 +2365,18 @@ resume_open_issue_pr_monitor_if_any() {
     return 1
   fi
 
-  echo "Resuming monitor for open PR #${pr_number} on ${branch_name}; skipping new issue selection until that PR closes."
+  if (( MAX_INFLIGHT > 1 )); then
+    echo "Reviewing open PR #${pr_number} on ${branch_name} before checking available slots."
+  else
+    echo "Resuming monitor for open PR #${pr_number} on ${branch_name}; skipping new issue selection until that PR closes."
+  fi
   CLEANUP_REPO_ON_EXIT=1
 
   if remote_branch_exists "$branch_name"; then
     run_step "Fetch PR branch $branch_name" \
-      git fetch origin "$branch_name:refs/remotes/origin/$branch_name"
+      git fetch origin "$branch_name:refs/remotes/origin/$branch_name" || return 2
     run_step "Checkout PR branch $branch_name" \
-      git checkout -B "$branch_name" "origin/$branch_name"
+      git checkout -B "$branch_name" "origin/$branch_name" || return 2
   else
     if ! ensure_worktree_on_branch "$branch_name"; then
       echo "Warning: PR branch ${branch_name} is unavailable on origin and local checkout recovery failed; monitoring PR #${pr_number} by number only." >&2
@@ -2342,12 +2393,14 @@ resume_open_issue_pr_monitor_if_any() {
     } || true)"
   fi
 
-  check_pr_feedback_after_delay \
+  if ! check_pr_feedback_after_delay \
     "$pr_number" \
     "$issue_number" \
     "${issue_title:-$pr_title}" \
     "$issue_labels" \
-    "$branch_name"
+    "$branch_name"; then
+    return 2
+  fi
   return 0
 }
 
@@ -5509,6 +5562,9 @@ run_issue_attempt_loop() {
 
 main() {
   parse_args "$@"
+  if [[ -n "${HUSHLINE_DEV_STORAGE_CONFIG:-}" ]]; then
+    python3 "$SCRIPT_DIR/dev_storage.py"
+  fi
   initialize_run_state
   trap cleanup EXIT
 
@@ -5527,6 +5583,12 @@ main() {
   require_cmd docker
   require_cmd make
   require_cmd node
+  require_cmd python3
+
+  if [[ "$MAX_INFLIGHT" != "1" && "$MAX_INFLIGHT" != "2" ]]; then
+    echo "HUSHLINE_DAILY_MAX_INFLIGHT must be 1 or 2." >&2
+    exit 1
+  fi
 
   require_positive_integer "HUSHLINE_DAILY_MAX_ISSUE_ATTEMPTS" "$MAX_ISSUE_ATTEMPTS"
   require_positive_integer "HUSHLINE_DAILY_MAX_FIX_ATTEMPTS" "$MAX_FIX_ATTEMPTS"
@@ -5599,22 +5661,32 @@ main() {
       exit 0
     fi
 
-    OPEN_IN_PROGRESS_ISSUES="$(count_open_project_issues_in_status "$PROJECT_STATUS_IN_PROGRESS")"
-    echo "Open project issues in ${PROJECT_STATUS_IN_PROGRESS}: ${OPEN_IN_PROGRESS_ISSUES}"
-    if [[ "$OPEN_IN_PROGRESS_ISSUES" != "0" ]]; then
-      ISSUE_NUMBER="$(collect_issue_candidates_in_status "$PROJECT_STATUS_IN_PROGRESS" | sed -n '1p')"
-      echo "Resuming assigned issue #${ISSUE_NUMBER} from project status '${PROJECT_STATUS_IN_PROGRESS}'."
-    else
-      ISSUE_NUMBER="$(collect_issue_candidates | sed -n '1p')"
+    if (( MAX_INFLIGHT > 1 )); then
+      if ! ISSUE_NUMBER="$(issue_slot_plan plan)"; then
+        runner_status "Blocked: cannot verify queue capacity and dependencies."
+        exit 1
+      fi
       if [[ -n "$ISSUE_NUMBER" ]]; then
-        echo "Selected issue #${ISSUE_NUMBER} from project queue."
+        echo "Selected issue #${ISSUE_NUMBER} from the unblocked two-slot queue."
+      fi
+    else
+      OPEN_IN_PROGRESS_ISSUES="$(count_open_project_issues_in_status "$PROJECT_STATUS_IN_PROGRESS")"
+      echo "Open project issues in ${PROJECT_STATUS_IN_PROGRESS}: ${OPEN_IN_PROGRESS_ISSUES}"
+      if [[ "$OPEN_IN_PROGRESS_ISSUES" != "0" ]]; then
+        ISSUE_NUMBER="$(collect_issue_candidates_in_status "$PROJECT_STATUS_IN_PROGRESS" | sed -n '1p')"
+        echo "Resuming assigned issue #${ISSUE_NUMBER} from project status '${PROJECT_STATUS_IN_PROGRESS}'."
+      else
+        ISSUE_NUMBER="$(collect_issue_candidates | sed -n '1p')"
+        if [[ -n "$ISSUE_NUMBER" ]]; then
+          echo "Selected issue #${ISSUE_NUMBER} from project queue."
+        fi
       fi
     fi
   fi
 
   if [[ -z "$ISSUE_NUMBER" ]]; then
     check_codex_status_once_for_idle_run
-    runner_status "Skipped: no open issues found in project '${PROJECT_TITLE}' column '${PROJECT_COLUMN}'."
+    runner_status "Skipped: no unblocked issue with available capacity in project '${PROJECT_TITLE}' column '${PROJECT_COLUMN}'."
     exit 0
   fi
 
@@ -5655,7 +5727,7 @@ main() {
     OPEN_BOT_PRS="$(count_open_bot_prs_excluding_heads "$EPIC_BRANCH_NAME" "$BRANCH_NAME")"
     echo "Open unrelated bot PR count: ${OPEN_BOT_PRS}"
     echo "Allowed bot PR heads: ${EPIC_BRANCH_NAME}, ${BRANCH_NAME}"
-    if [[ "$OPEN_BOT_PRS" != "0" ]]; then
+    if (( MAX_INFLIGHT == 1 )) && [[ "$OPEN_BOT_PRS" != "0" ]]; then
       runner_status "Skipped: found ${OPEN_BOT_PRS} unrelated open PR(s) by ${BOT_LOGIN}."
       exit 0
     fi
@@ -5669,10 +5741,19 @@ main() {
   else
     OPEN_BOT_PRS="$(count_open_bot_prs_excluding_heads)"
     echo "Open unrelated bot PR count: ${OPEN_BOT_PRS}"
-    if [[ "$OPEN_BOT_PRS" != "0" ]]; then
+    if (( MAX_INFLIGHT == 1 )) && [[ "$OPEN_BOT_PRS" != "0" ]]; then
       runner_status "Skipped: found ${OPEN_BOT_PRS} open PR(s) by ${BOT_LOGIN}."
       exit 0
     fi
+  fi
+
+  if (( MAX_INFLIGHT > 1 )); then
+    # Recheck forced/resumed assignments too; a queued issue and its PR share one slot.
+    if ! issue_slot_plan check --issue "$ISSUE_NUMBER"; then
+      runner_status "Skipped: issue #${ISSUE_NUMBER} has blocked dependencies or no available slot."
+      exit 0
+    fi
+    EXISTING_CHILD_PR_JSON="$(find_open_pr_for_head_branch "$BRANCH_NAME")"
   fi
 
   CLEANUP_REPO_ON_EXIT=1
@@ -5767,6 +5848,11 @@ main() {
     "$EPIC_ISSUE_URL"
 
   PR_TITLE="$(build_pr_title "$ISSUE_NUMBER" "$ISSUE_TITLE")"
+
+  if (( MAX_INFLIGHT > 1 )); then
+    # External PR/board changes during implementation must not open a third work item.
+    issue_slot_plan check --issue "$ISSUE_NUMBER"
+  fi
 
   if [[ -n "$EXISTING_CHILD_PR_JSON" ]]; then
     EXISTING_PR_NUMBER="$(printf '%s\n' "$EXISTING_CHILD_PR_JSON" | node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync(0,"utf8")); process.stdout.write(String(data.number || ""));')"
