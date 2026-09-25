@@ -956,8 +956,8 @@ function buildVerifiedUserSocialPrompt({ date, format = VERIFIED_USER_FORMATS[0]
     "4. blank line",
     `5. ${buildFormatCta("linkedin", selectedUser, selectedFormat)}`,
     "",
-    "Write valid JSON only to this file:",
-    outputPath,
+    outputPath ? "Write valid JSON only to this file:" : "Return only the JSON object as your final response. Do not write files or use tools.",
+    outputPath || "",
     "",
     "JSON schema:",
     JSON.stringify({

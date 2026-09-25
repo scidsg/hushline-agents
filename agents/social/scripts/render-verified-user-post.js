@@ -3,7 +3,6 @@
 "use strict";
 
 const fs = require("fs");
-const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const {
@@ -21,8 +20,8 @@ const { REPO_ROOT } = require("./lib/social-common");
 const CODEX_MODEL = process.env.CODEX_MODEL || "gpt-5.6-sol";
 const CODEX_REASONING_EFFORT = process.env.CODEX_REASONING_EFFORT || "high";
 
-function requireCommand(command) {
-  const result = spawnSync("which", [command], { encoding: "utf8" });
+function requireCommand(command, spawn = spawnSync) {
+  const result = spawn("which", [command], { encoding: "utf8" });
   if (result.status !== 0) {
     throw new Error(`Missing required command: ${command}`);
   }
@@ -75,7 +74,7 @@ function buildLocalFallbackCopy(run, outputDir, promptPath, lastError) {
   };
 }
 
-function generateVerifiedUserCopy(run, outputDir) {
+function generateVerifiedUserCopy(run, outputDir, { spawn = spawnSync } = {}) {
   const copyPath = path.join(outputDir, "copy.json");
   const promptPath = path.join(outputDir, "copy-prompt.txt");
   fs.mkdirSync(outputDir, { recursive: true });
@@ -92,7 +91,7 @@ function generateVerifiedUserCopy(run, outputDir) {
   }
 
   try {
-    requireCommand("codex");
+    requireCommand("codex", spawn);
   } catch (error) {
     lastError = error;
   }
@@ -102,7 +101,6 @@ function generateVerifiedUserCopy(run, outputDir) {
       date: run.date,
       feedback,
       format: run.verifiedUserFormat,
-      outputPath: path.relative(REPO_ROOT, copyPath),
       selectedUser: run.selectedUser,
     });
     fs.writeFileSync(promptPath, `${prompt}\n`);
@@ -111,57 +109,46 @@ function generateVerifiedUserCopy(run, outputDir) {
       break;
     }
 
-    const codexOutputPath = path.join(os.tmpdir(), `verified-user-codex-output-${process.pid}-${Date.now()}-${attempt}.txt`);
-    if (fs.existsSync(copyPath)) {
-      fs.unlinkSync(copyPath);
-    }
-
-    const result = spawnSync(
-      "codex",
-      [
-        "exec",
-        "--model",
-        CODEX_MODEL,
-        "-c",
-        `model_reasoning_effort="${CODEX_REASONING_EFFORT}"`,
-        "--full-auto",
-        "--sandbox",
-        "workspace-write",
-        "-C",
-        REPO_ROOT,
-        "-o",
-        codexOutputPath,
-        "-",
-      ],
-      {
-        encoding: "utf8",
-        input: prompt,
-        maxBuffer: 1024 * 1024 * 8,
-      },
-    );
-
-    if (result.status !== 0) {
-      const stderr = [result.stderr, result.stdout].filter(Boolean).join("\n").trim();
-      lastError = new Error(stderr || `Codex copy generation failed with exit ${result.status}.`);
-      continue;
-    }
-
-    if (!fs.existsSync(copyPath)) {
-      lastError = new Error(`Codex did not write verified-user copy to ${copyPath}.`);
-      continue;
-    }
-
+    const responseDir = fs.mkdtempSync(path.join(outputDir, ".copy-response-"));
+    const codexOutputPath = path.join(responseDir, "response.json");
+    const schemaPath = path.join(responseDir, "schema.json");
+    fs.writeFileSync(schemaPath, JSON.stringify({
+      type: "object",
+      additionalProperties: false,
+      required: ["linkedin", "mastodon", "bluesky"],
+      properties: Object.fromEntries(["linkedin", "mastodon", "bluesky"].map(key => [key, {type: "string"}])),
+    }));
     try {
-      const generated = JSON.parse(fs.readFileSync(copyPath, "utf8"));
+      const result = spawn("codex", [
+        "exec", "--model", CODEX_MODEL,
+        "-c", `model_reasoning_effort="${CODEX_REASONING_EFFORT}"`,
+        "--sandbox", "read-only",
+        "-C", fs.realpathSync(REPO_ROOT),
+        "--output-schema", schemaPath,
+        "-o", codexOutputPath, "-",
+      ], {
+        encoding: "utf8", input: prompt,
+        maxBuffer: 1024 * 1024 * 8,
+        timeout: 180000,
+      });
+      if (result.error || result.status !== 0) {
+        throw new Error(`Codex copy generation failed (${result.error?.code || result.status}).`);
+      }
+      if (!fs.existsSync(codexOutputPath)) {
+        throw new Error("Codex returned no structured copy response.");
+      }
+      const generated = JSON.parse(fs.readFileSync(codexOutputPath, "utf8"));
       const paragraphs = validateVerifiedUserSocialParagraphs(generated, run.selectedUser, { format: run.verifiedUserFormat });
+      writeCopyJson(copyPath, paragraphs);
       return {
-        copyPath,
-        promptPath,
+        copyPath, promptPath, fallback: false,
         social: buildSocialFromParagraphs(run.selectedUser, paragraphs, run.verifiedUserFormat),
       };
     } catch (error) {
       lastError = error;
-      feedback = `The previous draft failed validation: ${error.message} Rewrite it more directly and avoid profile-meta phrasing.`;
+      feedback = "The previous response failed validation. Return the required JSON object with factual middle paragraphs only.";
+    } finally {
+      fs.rmSync(responseDir, {recursive: true, force: true});
     }
   }
 
@@ -193,7 +180,11 @@ async function main() {
   );
 }
 
-main().catch((error) => {
-  process.stderr.write(`${error.stack || error.message}\n`);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    process.stderr.write(`${error.stack || error.message}\n`);
+    process.exit(1);
+  });
+}
+
+module.exports = { generateVerifiedUserCopy };
