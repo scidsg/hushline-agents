@@ -30,3 +30,16 @@ npm run check:launchd
 npm run publish:bluesky:daily -- --dry-run
 sudo ./scripts/install_launch_agent.sh --scope daemon
 ```
+
+## Verified-user copy generation
+
+The copy generator requests a structured JSON response from Codex in read-only
+mode. The runner validates the response and saves `copy.json` itself, so success
+does not depend on the model writing a file. Invalid or missing responses are
+retried once before using the existing factual fallback. Response scratch files
+are removed after each attempt; raw Codex transcripts are not printed on failure.
+
+Archive commits must use an email associated with the signing bot’s GitHub
+account (its GitHub-provided noreply address is suitable), and the signing public
+key must be registered to that account. Check GitHub’s verification result after
+pushing; a local SSH signature alone does not establish GitHub attribution.
