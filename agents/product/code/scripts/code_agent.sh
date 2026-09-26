@@ -3422,11 +3422,8 @@ open_coverage_gap_issue_after_pr() {
     rm -f "$issue_body_file"
 
     echo "Updated coverage gap issue: $existing_issue_url"
-    run_step \
-      "Ensure coverage gap issue #${existing_issue_number} is in ${PROJECT_COLUMN}" \
-      add_issue_to_project_status \
-      "$existing_issue_number" \
-      "$PROJECT_COLUMN"
+    # Preserve existing workflow status, including the source issue now in review.
+    # Only newly created coverage follow-ups should enter the eligible queue.
     return 0
   fi
 

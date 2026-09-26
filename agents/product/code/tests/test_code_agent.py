@@ -2870,8 +2870,10 @@ open_coverage_gap_issue_after_pr \\
     assert list(temp_dir.iterdir()) == []
 
 
+@pytest.mark.parametrize("source_issue_number", [1558, 2002])
 def test_open_coverage_gap_issue_after_pr_comments_on_existing_gap_issue(
     tmp_path: Path,
+    source_issue_number: int,
 ) -> None:
     check_log = tmp_path / "check.log"
     call_log = tmp_path / "calls.txt"
@@ -2935,9 +2937,9 @@ EOF
 open_coverage_gap_issue_after_pr \\
   2000 \\
   "https://github.com/scidsg/hushline/pull/2000" \\
-  1558 \\
+  {source_issue_number} \\
   "Fill coverage gaps" \\
-  "codex/daily-issue-1558"
+  "codex/daily-issue-{source_issue_number}"
 """
 
     result = _run_bash(shell_script)
@@ -2949,12 +2951,11 @@ open_coverage_gap_issue_after_pr \\
     )
     assert call_log.read_text(encoding="utf-8").splitlines() == [
         "comment:2002",
-        "project:2002:Agent Eligible",
     ]
     comment = comment_copy.read_text(encoding="utf-8")
     assert "Additional Coverage Snapshot" in comment
     assert "PR: https://github.com/scidsg/hushline/pull/2000" in comment
-    assert "Source issue: #1558 Fill coverage gaps" in comment
+    assert f"Source issue: #{source_issue_number} Fill coverage gaps" in comment
     assert "hushline/email.py" in comment
     assert "42" in comment
     assert "hushline/routes/profile.py" in comment
