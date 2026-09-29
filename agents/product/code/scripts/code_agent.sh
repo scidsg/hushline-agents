@@ -1274,20 +1274,14 @@ require_branch_has_unique_commits() {
 push_branch_for_pr() {
   local branch="$1"
 
-  if remote_branch_exists "$branch"; then
-    echo "Remote branch '$branch' exists; pushing with --force-with-lease."
-    if git push -u --force-with-lease origin "$branch"; then
-      return 0
-    fi
-
-    echo "Push was rejected (likely stale remote info); refreshing and retrying once."
-    git fetch origin "$branch":"refs/remotes/origin/$branch" >/dev/null 2>&1 || true
-    git push -u --force-with-lease origin "$branch"
-    return $?
+  # Remote-tracking refs may be refreshed by another process or worktree.
+  # A normal push protects remote commits regardless of that shared local state.
+  if git push -u origin "$branch"; then
+    return 0
   fi
 
-  echo "Remote branch '$branch' does not exist; creating it with a standard push."
-  git push -u origin "$branch"
+  echo "Blocked: could not push '$branch' without overwriting remote history. Local work is preserved; reconcile the remote branch before retrying." >&2
+  return 1
 }
 
 build_pr_title() {
@@ -4461,7 +4455,7 @@ address_pr_feedback() {
   fi
 
   git commit -m "fix: address PR feedback for #${issue_number}"
-  push_branch_for_pr "$branch_name"
+  push_branch_for_pr "$branch_name" || return 1
   echo "Pushed PR feedback update for PR #${pr_number}."
   acknowledge_pr_feedback_review_threads "$pr_number" "$feedback_json"
 }
@@ -5787,7 +5781,7 @@ main() {
     else
       run_step "Create epic base branch $EPIC_BRANCH_NAME" \
         git checkout -B "$EPIC_BRANCH_NAME" "$BASE_BRANCH"
-      push_branch_for_pr "$EPIC_BRANCH_NAME"
+      push_branch_for_pr "$EPIC_BRANCH_NAME" || return 1
       EPIC_BRANCH_START_REF="$EPIC_BRANCH_NAME"
     fi
     PR_BASE_REF="$EPIC_BRANCH_START_REF"
@@ -5828,7 +5822,7 @@ main() {
   ensure_head_commit_on_branch "$BRANCH_NAME" "$BASE_BRANCH"
   require_branch_has_unique_commits "$PR_BASE_REF" "$BRANCH_NAME"
   # Keep branch update simple while preventing blind overwrite.
-  push_branch_for_pr "$BRANCH_NAME"
+  push_branch_for_pr "$BRANCH_NAME" || return 1
 
   ensure_head_commit_on_branch "$BRANCH_NAME" "$BASE_BRANCH"
   require_branch_has_unique_commits "$PR_BASE_REF" "$BRANCH_NAME"

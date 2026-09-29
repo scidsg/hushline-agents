@@ -247,8 +247,8 @@ Every queued issue is assumed to require a real change. Once the runner claims a
     - After each persist, prune older runner logs and keep only the newest `10` by default.
     - Persisted logs are sanitized before retention to remove developer filesystem paths, emails, Codex session metadata, and common credential patterns.
 21. Commit, push branch, and open/update PR:
-    - first push uses a normal push when remote branch is absent
-    - existing remote branch uses `--force-with-lease` with one stale-info recovery retry.
+    - new and existing branches use normal pushes; existing remote history must remain an ancestor
+    - a rejected push stops the pass and preserves local work for reconciliation; the runner never refreshes a lease and force-pushes over concurrent PR updates.
     - child issues under a parent epic open/update a child PR whose base branch is the shared epic branch
     - the long-lived epic PR, when present, remains the only PR that targets `main`
 22. Move the selected issue into project status `Ready for Review` once the PR exists.
