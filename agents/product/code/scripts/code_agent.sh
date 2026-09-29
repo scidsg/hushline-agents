@@ -314,6 +314,22 @@ codex_status_reached_type_blocks_issue_work() {
   esac
 }
 
+codex_status_has_usable_paid_credits() {
+  node -e '
+const fs = require("node:fs");
+const root = JSON.parse(fs.readFileSync(0, "utf8"));
+const limits = root.rateLimitsByLimitId?.codex || root.rateLimits || root;
+const reachedType = limits.rateLimitReachedType || "null";
+const credits = limits.credits || {};
+const balance = Number(credits.balance);
+const usable = ["null", "primary", "rate_limit_reached"].includes(reachedType) &&
+  limits.spendControlReached !== true && limits.individualLimit == null &&
+  (credits.unlimited === true ||
+    (credits.hasCredits === true && Number.isFinite(balance) && balance > 0));
+process.exit(usable ? 0 : 1);
+'
+}
+
 codex_model_status_label() {
   local model_label="$CODEX_MODEL"
 
@@ -388,6 +404,11 @@ wait_for_codex_status_credit_window() {
       remaining_percent=0
     fi
     echo "Codex /status: primary ${window_duration_mins}m window ${used_percent}% used; ${remaining_percent}% remaining; resets at ${reset_label}."
+
+    if printf '%s\n' "$status_json" | codex_status_has_usable_paid_credits; then
+      echo "Codex /status: paid credits are available; proceeding with assigned work."
+      return 0
+    fi
 
     if codex_status_reached_type_blocks_issue_work "$reached_type"; then
       echo "Blocked: Codex /status reported non-window limit type '${reached_type}'; refusing to start assigned work until Codex access is restored." >&2

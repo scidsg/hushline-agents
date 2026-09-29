@@ -166,7 +166,7 @@ Every queued issue is assumed to require a real change. Once the runner claims a
 
 1. Parse arguments (`--issue` optional) and resolve runtime configuration.
 2. Acquire a local runner lock and exit without doing any repository or Docker work if another Hush Line code-agent run is active.
-3. Check Codex `/status` rate-limit data before repository, GitHub, or Docker work. If the 300-minute primary window has less than the configured minimum remaining quota, wait until after its reset time and re-check before proceeding.
+3. Check Codex `/status` rate-limit data before repository, GitHub, or Docker work. Available paid credits allow assigned work to proceed after included quota is exhausted, unless the response reports an explicit spending, individual, or workspace access limit. Without usable paid credits, if the 300-minute primary window has less than the configured minimum remaining quota, wait until after its reset time and re-check before proceeding. Codex remains authoritative when the actual work request is submitted.
 4. Change into the repo (`$HOME/hushline` by default).
 5. Hold the runner lock through all repository cleanup, including exit-time checkout/reset/clean work, so a launchd overlap cannot start a second issue while the prior run is still unwinding.
 6. Normalize the local agent-only checkout by discarding local worktree changes and switching to the base branch.
