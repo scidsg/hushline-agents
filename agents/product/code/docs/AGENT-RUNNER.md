@@ -179,6 +179,8 @@ Every queued issue is assumed to require a real change. Once the runner claims a
    - fail fast on Python and Node vulnerability audits before the expensive test suite
    - verify changed Node lockfiles with an integrity-enforcing `npm ci --ignore-scripts` clean install in an isolated temporary directory under the project's pinned Node 20 webpack service, so invalid registry metadata cannot reach CI or dirty the live asset workspace
    - preserve prior security fixes across repair attempts and regenerate lockfiles rather than hand-editing package-manager checksums
+   - when a trusted branch cannot rebase cleanly, abort the rebase and assess conflicts in a merge of the original PR tip with current main, including Python/Node lockfiles and related documentation; preserve fixes from both branches, reject unresolved markers, sign the resolution, and publish with an exact push lease only after local validation
+   - after any base synchronization, rerun dependency assessment and all local gates; failed conflict assessment or local validation leaves the PR blocked without pushing
    - run lint and the full test suite after dependency audits and install-integrity checks pass
    - approve only an unchanged Dependabot-authored tip; never let the runner approve its own compatibility commit
    - enable protected squash auto-merge and defer ordinary issue work until every dependency PR closes
