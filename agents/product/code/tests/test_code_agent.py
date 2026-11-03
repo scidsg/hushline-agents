@@ -1905,7 +1905,7 @@ process_dependabot_pr \
     assert "Resuming protected merge" in result.stdout
 
 
-def test_rebase_dependabot_pr_resolves_lock_conflict_and_uses_exact_lease(
+def test_rebase_dependabot_pr_assesses_conflicts_and_defers_publication(
     tmp_path: Path,
 ) -> None:
     call_log = tmp_path / "calls.txt"
@@ -1918,6 +1918,9 @@ rebase_attempt=0
 expected_push="push --force-with-lease=refs/heads/dependabot/test:{head_oid}"
 expected_push+=" origin HEAD:refs/heads/dependabot/test"
 assert_dependabot_rebase_commit_ownership() {{ return 0; }}
+repair_dependabot_merge_conflicts() {{
+  printf 'repair:%s\\n' "$1" >> {shlex.quote(str(call_log))}
+}}
 git() {{
   printf 'git:%s\n' "$*" >> {shlex.quote(str(call_log))}
   case "$*" in
@@ -1960,14 +1963,11 @@ printf 'result:%s:%s:%s\n' \
     assert result.returncode == 0, result.stderr
     calls = call_log.read_text(encoding="utf-8").splitlines()
     assert "git:rebase origin/main" in calls
-    assert "git:rebase --abort" in calls
-    assert "git:rebase -X theirs origin/main" in calls
-    assert (
-        "git:push --force-with-lease=refs/heads/dependabot/test:"
-        f"{head_oid} origin HEAD:refs/heads/dependabot/test"
-    ) in calls
+    assert "repair:2342" in calls
+    assert not any("-X theirs" in call for call in calls)
+    assert not any(call.startswith("git:push ") for call in calls)
     assert calls[-1] == f"result:{rebased_oid}:1:1"
-    assert "Resolving package-lock.json conflict" in result.stdout
+    assert "Assessing Dependabot conflicts" in result.stdout
 
 
 def test_normalize_legacy_unverified_dependabot_tail_uses_exact_lease(
@@ -6566,3 +6566,170 @@ printf 'rc=%s\\n' "$rc"
     assert calls_file.read_text(encoding="utf-8").splitlines() == [
         "capture:Run lint:make",
     ]
+
+
+@pytest.mark.parametrize("outcome", ["resolved", "failed", "unresolved", "moved"])
+def test_dependabot_conflict_repair_preserves_both_branches(tmp_path: Path, outcome: str) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def git(*args: str) -> str:
+        return subprocess.check_output(
+            ["/usr/bin/git", *args], cwd=repo, text=True, stderr=subprocess.STDOUT
+        ).strip()
+
+    git("init", "-b", "main")
+    git("config", "user.name", "Conflict test")
+    git("config", "user.email", "conflict@example.test")
+    git("config", "commit.gpgsign", "false")
+    git("config", "core.hooksPath", "/dev/null")
+    (repo / "poetry.lock").write_text('version = "1"\n')
+    (repo / "SECURITY.md").write_text("old guidance\n")
+    git("add", ".")
+    git("commit", "-m", "base")
+    git("checkout", "-b", "dependabot/test")
+    (repo / "poetry.lock").write_text('version = "2"\n')
+    (repo / "SECURITY.md").write_text("PR guidance\n")
+    (repo / "compatibility.txt").write_text("preserve PR compatibility\n")
+    git("add", ".")
+    git("commit", "-m", "dependency update and compatibility")
+    original = git("rev-parse", "HEAD")
+    git("checkout", "main")
+    (repo / "poetry.lock").write_text('version = "3"\n')
+    (repo / "SECURITY.md").write_text("main guidance\n")
+    (repo / "security-fix.txt").write_text("preserve main security fix\n")
+    git("add", ".")
+    git("commit", "-m", "independent security update")
+    base = git("rev-parse", "HEAD")
+    git("update-ref", "refs/remotes/origin/main", base)
+    git("checkout", "dependabot/test")
+    prompt = tmp_path / "prompt.txt"
+    calls = tmp_path / "calls.txt"
+    model = {
+        "resolved": "printf 'version = \"3\"\\n' > poetry.lock; "
+        "printf 'combined guidance\\n' > SECURITY.md",
+        "failed": "return 1",
+        "unresolved": ":",
+        "moved": "printf 'version = \"3\"\\n' > poetry.lock; "
+        "printf 'combined guidance\\n' > SECURITY.md",
+    }[outcome]
+    remote_tip = "0" * 40 if outcome == "moved" else original
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+cd {shlex.quote(str(repo))}
+BASE_BRANCH=main
+PROMPT_FILE={shlex.quote(str(prompt))}
+assert_dependabot_rebase_commit_ownership() {{ return 0; }}
+branch_has_unique_commits() {{ return 0; }}
+run_codex_from_prompt() {{ {model}; }}
+git() {{
+  case "$1" in
+    commit)
+      printf '%s\\n' "$*" >> {shlex.quote(str(calls))}
+      [[ "$2" == "-S" ]] || return 98
+      shift 2
+      command git -c commit.gpgsign=false commit "$@"
+      ;;
+    ls-remote) printf '%s\\trefs/heads/dependabot/test\\n' {remote_tip} ;;
+    push) printf '%s\\n' "$*" >> {shlex.quote(str(calls))} ;;
+    *) command git "$@" ;;
+  esac
+}}
+rebase_dependabot_pr_onto_current_base 2483 dependabot/test {original}
+"""
+    result = _run_bash(shell_script)
+    assert prompt.exists(), result.stdout + result.stderr
+    assert "poetry.lock" in prompt.read_text()
+    assert "SECURITY.md" in prompt.read_text()
+    logged = calls.read_text() if calls.exists() else ""
+    if outcome == "resolved":
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert git("show", "HEAD:poetry.lock") == 'version = "3"'
+        assert git("show", "HEAD:SECURITY.md") == "combined guidance"
+        assert git("show", "HEAD:compatibility.txt") == "preserve PR compatibility"
+        assert git("show", "HEAD:security-fix.txt") == "preserve main security fix"
+        assert git("rev-parse", "HEAD^1") == original
+        assert git("rev-parse", "HEAD^2") == base
+        assert "commit -S" in logged
+        assert "push " not in logged
+    else:
+        assert result.returncode != 0
+        assert "push " not in logged
+        if outcome != "moved":
+            assert git("rev-parse", "HEAD") == original
+            assert git("status", "--porcelain") == ""
+
+
+@pytest.mark.parametrize("outcome", ["pass", "fail", "moved", "push-fail"])
+def test_dependabot_repaired_tip_is_published_only_after_validation(
+    tmp_path: Path, outcome: str
+) -> None:
+    calls = tmp_path / "calls.txt"
+    original = "a" * 40
+    updated = "b" * 40
+    shell_script = f"""
+source {shlex.quote(str(RUNNER_SCRIPT))}
+BASE_BRANCH=main
+remote_calls=0
+run_step() {{ :; }}
+git() {{
+  case "$1" in
+    ls-remote)
+      if [[ -f {shlex.quote(str(calls))} && {shlex.quote(outcome)} == moved ]]; then
+        printf '{updated}\\tbranch\\n'
+      else
+        printf '{original}\\tbranch\\n'
+      fi
+      ;;
+    rev-parse) printf '{updated}\\n' ;;
+    push)
+      printf '%s\\n' "$*" >> {shlex.quote(str(calls))}
+      [[ {shlex.quote(outcome)} != push-fail ]]
+      ;;
+    *) return 98 ;;
+  esac
+}}
+rebase_dependabot_pr_onto_current_base() {{
+  DEPENDABOT_REBASE_PERFORMED=1
+  DEPENDABOT_REBASE_HAS_CHANGES=1
+  DEPENDABOT_REBASED_HEAD_OID={updated}
+}}
+github_commit_is_bot_authored() {{ return 98; }}
+docker() {{ :; }}
+kill_all_docker_containers() {{ :; }}
+kill_processes_on_ports() {{ :; }}
+start_runtime_stack_and_seed_dev_data() {{ :; }}
+restore_runtime_generated_static_artifacts() {{ :; }}
+gh() {{ printf 'PR body'; }}
+fetch_pr_feedback_json() {{ return 1; }}
+build_dependabot_review_prompt() {{ :; }}
+run_codex_from_prompt() {{ :; }}
+run_dependabot_fix_attempt_loop() {{
+  printf 'validated\\n' >> {shlex.quote(str(calls))}
+  [[ {shlex.quote(outcome)} != fail ]]
+}}
+ensure_worktree_on_branch() {{ :; }}
+has_non_log_changes() {{ return 1; }}
+normalize_legacy_unverified_dependabot_tail() {{ :; }}
+assert_remote_commit_range_verified() {{ :; }}
+merge_dependabot_pr_with_policy() {{
+  printf 'merge-policy\\n' >> {shlex.quote(str(calls))}
+}}
+process_dependabot_pr 2483 update dependabot/test {original} https://example.test/2483 '[]'
+"""
+    result = _run_bash(shell_script)
+    log = calls.read_text().splitlines()
+    assert log[0] == "validated"
+    if outcome == "pass":
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert log == [
+            "validated",
+            f"push --force-with-lease=refs/heads/dependabot/test:{original} "
+            "origin HEAD:refs/heads/dependabot/test",
+            "merge-policy",
+        ]
+    else:
+        assert result.returncode != 0
+        assert "merge-policy" not in log
+        if outcome != "push-fail":
+            assert log == ["validated"]
